@@ -32,6 +32,11 @@ import org.springframework.transaction.annotation.Transactional;
  *
  * <p>테스트마다 트랜잭션이 롤백되므로 DB에 행이 남지 않는다. MySQL이 필요하다: {@code ./gradlew dbTest}
  * (CI는 backend-ci의 db-test 작업, 빈 MySQL 8.0). V1-11(시연 시드 적용)은 시드 이슈에서 확인한다.
+ *
+ * <p>LIMIT: V1 시점 스냅샷이다. 이 테스트는 최신 마이그레이션까지 적용된 DB에서 돌므로, 다음 버전이 들어오면
+ * 기대값을 그 버전 기준으로 옮긴다(07 6장): V2 PR에서 V1-8({@code NO_SHOW} 허용)·V1-12({@code inspect_result},
+ * {@code customer.version}·{@code vehicle.version} 추가), P1 {@code contact_log} PR에서 V1-1(테이블 수)·V1-12.
+ * 명세가 바뀐 만큼만 옮기는 것이고 검증을 약하게 하는 것이 아니다(CONVENTIONS 12장).
  */
 @Tag("db")
 @SpringBootTest

@@ -1,0 +1,36 @@
+### OS ###
+.DS_Store
+Thumbs.db
+desktop.ini
+
+### IDE ###
+.idea/
+*.iml
+*.iws
+*.ipr
+out/
+.vscode/
+.settings/
+.project
+.classpath
+.factorypath
+.sts4-cache/
+bin/
+
+### Secrets (never commit) ###
+.env
+.env.*
+!.env.example
+
+### Gradle ###
+.gradle/
+build/
+!gradle/wrapper/gradle-wrapper.jar
+HELP.md
+
+### Claude: 개인 설정 + chagok-docs에서 복사한 공용 설정 (원본은 chagok-docs) ###
+/.claude/settings.local.json
+/.claude/rules/
+/.claude/skills/
+/.claude/agents/
+/.claude/.synced-from

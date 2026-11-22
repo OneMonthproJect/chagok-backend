@@ -1,0 +1,29 @@
+# 패키지 주인 → PR이 이 경로를 건드리면 주인에게 자동으로 리뷰 요청 (chagok-backend)
+# 결정 14(구현 담당) 후 GitHub 아이디로 채우고 맨 앞 # 를 지운다. 모르는 아이디가 있으면 GitHub이 경고한다.
+# 한 경로에 주인은 1명(필요하면 2명). 아래 줄이 위 줄보다 우선한다.
+# 사람 팀원 계정만 쓴다. Claude·AI 계정은 넣지 않는다.
+
+# 형상관리
+# /.github/                         @형상관리
+# /.claude/settings.json            @형상관리
+# /.coderabbit.yaml                 @형상관리
+# /CLAUDE.md                        @형상관리
+
+# 백엔드 기반 (공용)
+# /build.gradle                     @백엔드기반담당
+# /src/main/resources/application*.yaml  @백엔드기반담당
+# /src/main/java/**/global/         @백엔드기반담당
+
+# DB (Flyway 마이그레이션·시연 시드)
+# /src/main/resources/db/           @DB관리1 @DB관리2
+# /db/                              @DB관리1 @DB관리2
+
+# 도메인 (도메인 하나 = 주인 1명)
+# /src/main/java/**/domain/account/      @
+# /src/main/java/**/domain/shop/         @
+# /src/main/java/**/domain/customer/     @
+# /src/main/java/**/domain/item/         @
+# /src/main/java/**/domain/maintenance/  @
+# /src/main/java/**/domain/reservation/  @
+# /src/main/java/**/domain/cycle/        @ @도메인관리
+# /src/main/java/**/screen/              @

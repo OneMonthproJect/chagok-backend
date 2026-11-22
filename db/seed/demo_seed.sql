@@ -1,0 +1,7 @@
+-- 차곡 시연 시드 (시연 전용 DB 전용)
+--
+-- 직접 실행하지 않는다. db/seed/run-demo-seed.sh 로만 실행한다.
+-- ERD(chagok-docs/docs/07) 확정과 V1__init.sql 작성 뒤 DB 담당자가 07 7장 시드 구성대로 채운다.
+-- 규칙: README.md (DELETE·TRUNCATE·DROP·CREATE TABLE 금지, 날짜는 CURDATE() 기준 상대값, 시연 계정 비밀번호 1234의 BCrypt 해시)
+--
+-- (아직 비어 있음)

@@ -1,0 +1,98 @@
+# 백엔드 검증 (모든 PR). 실패하면 PR에 ❌가 붙는다.
+# GitHub Free 운영: 브랜치 보호를 필수로 쓰지 않으므로 ❌가 머지를 자동으로 막지는 않는다.
+#   → ❌인 PR은 머지하지 않는다 (CONTRIBUTING 5장). 형상관리자가 확인하고 중단시킨다.
+#
+#  wrapper : Gradle Wrapper가 있고 공식 파일인지 (없으면 실패)
+#  build   : 컴파일 + DB 없이 도는 테스트(ArchitectureTest·단위 테스트)   ./gradlew build
+#  db-test : MySQL이 필요한 테스트(@Tag("db"): 앱 기동·Flyway·JPA validate)  ./gradlew dbTest
+name: backend-ci
+on:
+  pull_request:
+    branches: [develop, main]
+  push:
+    branches: [develop, main]
+
+permissions:
+  contents: read
+
+jobs:
+  wrapper:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Gradle Wrapper 존재 확인
+        run: |
+          for f in gradlew gradlew.bat gradle/wrapper/gradle-wrapper.jar gradle/wrapper/gradle-wrapper.properties; do
+            [ -f "$f" ] || { echo "::error::$f 가 없습니다. Gradle Wrapper는 레포에 포함되어야 합니다 (README)."; exit 1; }
+          done
+      - name: Gradle Wrapper 검증 (공식 jar인지)
+        uses: gradle/actions/wrapper-validation@v4
+
+  build:
+    needs: wrapper
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: gradle
+      - run: chmod +x gradlew
+      - name: 빌드 + DB 없는 테스트
+        run: ./gradlew build --no-daemon
+      - name: 테스트 결과 요약
+        if: always()
+        run: python3 .github/scripts/test-summary.py build/test-results/test "DB 없는 테스트 (test)" >> "$GITHUB_STEP_SUMMARY"
+      - name: 테스트 리포트 보관
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-report
+          path: |
+            build/reports/tests/test
+            build/test-results/test
+          if-no-files-found: warn
+
+  db-test:
+    needs: build
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_DATABASE: chagok
+          MYSQL_USER: wanted
+          MYSQL_PASSWORD: wanted
+          MYSQL_ROOT_PASSWORD: root
+        ports: ["3306:3306"]
+        options: >-
+          --health-cmd="mysqladmin ping -h localhost"
+          --health-interval=10s --health-timeout=5s --health-retries=10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: gradle
+      - run: chmod +x gradlew
+      - name: DB 테스트 (빈 MySQL에 Flyway 적용 + 앱 기동)
+        run: ./gradlew dbTest --no-daemon
+        env:
+          # CI 전용 일회용 DB 값 (실제 비밀값 아님). application.yaml의 환경변수 이름과 같다
+          DB_URL: jdbc:mysql://localhost:3306/chagok?characterEncoding=UTF-8&serverTimezone=Asia/Seoul
+          DB_USERNAME: wanted
+          DB_PASSWORD: wanted
+      - name: 테스트 결과 요약
+        if: always()
+        run: python3 .github/scripts/test-summary.py build/test-results/dbTest "DB 테스트 (dbTest)" >> "$GITHUB_STEP_SUMMARY"
+      - name: 테스트 리포트 보관
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: db-test-report
+          path: |
+            build/reports/tests/dbTest
+            build/test-results/dbTest
+          if-no-files-found: warn

@@ -1,0 +1,55 @@
+# CodeRabbit 설정 (chagok-backend) — 형상관리 소유. 정책: chagok-docs/CONTRIBUTING.md 6장 「CodeRabbit」
+# 릴리스 PR 중심 조건부 리뷰 (공식 스키마 v2: reviews.auto_review)
+#   - 일반 PR → develop       : 자동 리뷰 없음 (enabled: false)
+#   - develop → main 릴리스 PR : `release` 라벨(labeler가 자동 부착)이 붙으면 자동 리뷰 1회 (labels의 양성 항목은 enabled: false여도 리뷰를 시작함)
+#   - 추가 push               : 자동 증분 리뷰 없음 (auto_incremental_review: false). 다시 보려면 `@coderabbitai review`
+#   - 중요·복잡한 PR           : 작성자·승인자가 필요할 때 PR 댓글로 `@coderabbitai review` (`review-me` 라벨은 표시용, cycle·global(인증·보안)·Flyway 마이그레이션 변경 시 자동 부착)
+# CodeRabbit 리뷰는 머지 차단 조건이 아니다. 지적의 수정 여부는 형상관리자가 최종 판단한다.
+# 릴리스 PR에서 리뷰가 시작되지 않으면 PR 댓글로 "@coderabbitai full review"
+language: "ko-KR"
+reviews:
+  profile: "chill"
+  request_changes_workflow: false
+  high_level_summary: true
+  poem: false
+  auto_review:
+    enabled: false
+    auto_incremental_review: false
+    drafts: false
+    base_branches:
+      - "^main$"
+    labels:
+      - "release"
+  path_filters:
+    - "!**/*.md"
+    - "!gradle/**"
+  path_instructions:
+    - path: "src/main/java/**/domain/cycle/**"
+      instructions: |
+        주기 계산 모듈이다. 다음을 확인해 줘.
+        - 다른 domain 패키지를 import하거나 Repository를 쓰면 지적
+        - 기준 기록은 교체·외부 중 최신만 사용 (점검·거절은 주기를 초기화하지 않음)
+        - 날짜 계산은 plusMonths, 임박은 기준일 + 1개월 이내, 도래 경계는 ≥
+        - 기준 기록에 주행거리가 없으면 km 판정 생략, 기준 기록이 없으면 "미확인"
+        - 월말·윤년 경계
+    - path: "src/main/java/**/domain/**"
+      instructions: |
+        다음 구조 규칙으로 봐 줘.
+        - 다른 도메인의 entity·repository·service·dto를 import하면 지적 (api 패키지만 허용)
+        - 같은 규칙(상태 판정, 소속 확인, 역할 확인)이 여러 곳에 복사되면 지적
+        - 정비소 데이터 조회·수정에 로그인 shop_id 조건이 빠졌거나 shop_id를 요청 값에서 받으면 지적
+        - Controller의 try/catch, Entity의 public setter, LocalDate.now() 직접 호출 지적
+        단, 기획 범위를 넓히는 제안(기능 추가, 중복 차단 등)은 하지 마. 범위는 기획 문서 00이 정한다.
+    - path: "src/main/java/**/screen/**"
+      instructions: "조립 전용 패키지다. 저장·상태 변경을 하거나 다른 도메인 내부를 import하면 지적해 줘."
+    - path: "src/main/java/**/global/**"
+      instructions: |
+        관리자(platform_admin)는 /admin/** 만, 사장·정비사는 정비소 API만 허용되는지 확인해 줘.
+        SecurityConfig는 anyRequest().denyAll()로 끝나야 한다.
+    - path: "src/main/resources/db/migration/**"
+      instructions: |
+        Flyway 버전 파일이다. 이미 공유된 버전 파일을 고치지 말고 새 번호를 더해야 한다.
+        shop_id가 필요한 표(customer, vehicle, maintenance_record, reservation)에 shop_id가 빠지면 지적해 줘.
+        상태(미확인/여유/임박/도래)를 칼럼으로 저장하면 지적해 줘.
+    - path: "db/seed/**"
+      instructions: "시연 전용 시드다. 날짜는 오늘 기준 상대값(CURDATE() - INTERVAL …)인지, DELETE·TRUNCATE·DROP·ALTER·CREATE·UPDATE 문장이 없는지, 시연 계정 비밀번호가 평문이 아니라 BCrypt 해시인지 확인해 줘."

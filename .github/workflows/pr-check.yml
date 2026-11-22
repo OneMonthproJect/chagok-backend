@@ -1,0 +1,120 @@
+# 모든 PR의 형식·비밀값을 검사한다. 세 레포 공통 부분은 같게 유지한다.
+# 실패(❌)해도 GitHub Free·브랜치 보호 없이 운영하므로 머지가 자동으로 막히지 않는다.
+# ❌인 PR은 머지하지 않는다 (CONTRIBUTING 5장). error = 차단 기준, warning = 리뷰 때 확인.
+name: pr-check
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+permissions:
+  contents: read
+  pull-requests: read
+jobs:
+  pr-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: 형식 검사
+        env:
+          BASE: ${{ github.base_ref }}
+          HEAD: ${{ github.head_ref }}
+          TITLE: ${{ github.event.pull_request.title }}
+          BODY: ${{ github.event.pull_request.body }}
+          FREEZE: ${{ vars.FEATURE_FREEZE }}
+        run: |
+          fail=0
+          if [ "$BASE" = "main" ]; then
+            if [ "$HEAD" != "develop" ]; then
+              echo "::error::main에는 develop만 머지합니다 (릴리스 PR)."; exit 1
+            fi
+            echo "릴리스 PR: 형식 검사 생략"; exit 0
+          fi
+
+          branch_re='^(feature|fix|docs|chore)/#[0-9]+-[a-z0-9-]+$'
+          if ! [[ "$HEAD" =~ $branch_re ]]; then
+            echo "::error::브랜치 이름은 feature|fix|docs|chore/#이슈번호-영문-이름 형식이어야 합니다. 현재: $HEAD"; fail=1
+          fi
+
+          title_re='^\[#[0-9]+\] .+'
+          if ! [[ "$TITLE" =~ $title_re ]]; then
+            echo "::error::PR 제목은 [#이슈번호] 제목 형식이어야 합니다."; fail=1
+          fi
+
+          # 같은 레포 이슈(#12) 또는 다른 레포 이슈(OneMonthproJect/chagok-docs#12)
+          if ! printf '%s' "$BODY" | grep -Eiq '(close[sd]?|fix(e[sd])?|resolve[sd]?) ([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)?#[0-9]+'; then
+            echo "::error::PR 본문에 'Closes #이슈번호'가 필요합니다 (머지 시 이슈 자동 클로즈)."; fail=1
+          fi
+
+          if [ "$FREEZE" = "true" ] && [[ "$HEAD" == feature/* ]]; then
+            echo "::error::관문 2 기능 동결 중입니다. feature/ 브랜치 PR은 머지하지 않습니다 (fix/·docs/만 가능)."; fail=1
+          fi
+          exit $fail
+
+      - name: 비밀값·민감 파일 검사 (차단)
+        if: github.base_ref != 'main'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: bash .github/scripts/secret-scan.sh "$BASE_SHA" "$HEAD_SHA"
+
+      - name: AI 공동 작성자 표기 검사
+        if: github.base_ref != 'main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          # PR 본문 + 모든 커밋 메시지·작성자. Squash merge 때 커밋 트레일러가 develop 커밋에 그대로 남기 때문에 커밋까지 본다.
+          text=$(gh pr view "$PR" --repo "$REPO" --json body,commits -q '
+            (.body // ""),
+            (.commits[] | (.messageHeadline // ""), (.messageBody // ""),
+              (.authors[]? | ((.name // "") + " <" + (.email // "") + ">")))')
+          pattern='co-authored-by:.*(claude|anthropic)|noreply@anthropic\.com|generated with \[?claude'
+          if printf '%s\n' "$text" | grep -Eiq "$pattern"; then
+            printf '%s\n' "$text" | grep -Ein "$pattern" | head -5
+            echo "::error::커밋 또는 PR 본문에 AI 공동 작성자 표기가 있습니다. 해당 줄을 지우고 다시 push해 주세요 (CONTRIBUTING 4장). 마지막 커밋이면: git commit --amend 로 메시지 수정 후 git push --force-with-lease"
+            exit 1
+          fi
+          echo "AI 표기 없음"
+
+      - name: DB·Flyway 규칙 검사 (차단)
+        if: github.base_ref != 'main'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: bash .github/scripts/db-rules.sh "$BASE_SHA" "$HEAD_SHA"
+
+      - name: 문서 동기화 검사 (백엔드 ↔ chagok-docs)
+        if: github.base_ref != 'main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+          BODY: ${{ github.event.pull_request.body }}
+        run: |
+          # status<TAB>path (added / modified / removed / renamed)
+          changes=$(gh api "repos/$REPO/pulls/$PR/files" --paginate -q '.[] | [.status, .filename] | @tsv')
+          files=$(printf '%s\n' "$changes" | cut -f2)
+          has() { printf '%s\n' "$files" | grep -Eq "$1"; }
+          docs_link=0
+          printf '%s' "$BODY" | grep -Eiq 'chagok-docs(#|/pull/|/issues/)[0-9]+' && docs_link=1
+          fail=0
+          if has '^src/main/resources/db/migration/' && [ $docs_link -eq 0 ]; then
+            echo "::error::DB 구조(마이그레이션)가 바뀌었는데 PR 본문에 chagok-docs 문서 PR 링크가 없습니다. 07 ERD를 고친 문서 PR을 「문서 PR」 칸에 적어 주세요."; fail=1
+          fi
+          if has '^db/seed/' && [ $docs_link -eq 0 ]; then
+            echo "::warning::시드가 바뀌었습니다. 07 시드표와 맞는지 확인해 주세요."
+          fi
+          if has '^src/main/java/.*(Controller\.java|/dto/|ErrorCode\.java)' && [ $docs_link -eq 0 ]; then
+            echo "::warning::Controller·DTO·ErrorCode가 바뀌었는데 문서 PR 링크가 없습니다. 요청·응답이 달라졌다면 08 표와 JSON 예시를 고친 chagok-docs PR을 적고 프론트 담당에게 알려 주세요. 바뀌지 않았다면 「문서 변경 없음」을 체크해 주세요."
+          fi
+          if has '^src/main/java/.*/domain/cycle/' && ! has '^src/test/'; then
+            echo "::warning::cycle 코드가 바뀌었는데 테스트 변경이 없습니다. 04의 T-xx가 그대로 통과하는지 확인해 주세요."
+          fi
+          domains=$(printf '%s\n' "$files" | sed -nE 's#^src/main/java/.*/(domain|screen)/([a-z]+)/.*#\1/\2#p' | sort -u)
+          n=$(printf '%s\n' "$domains" | grep -c . || true)
+          if [ "$n" -ge 3 ]; then
+            echo "::warning::이 PR은 도메인 $n개를 건드립니다: $(echo $domains). 이슈를 쪼갤 수 있는지, 다른 도메인 api 대신 내부를 고치고 있지 않은지 확인해 주세요 (CONVENTIONS 9장)."
+          fi
+          exit $fail

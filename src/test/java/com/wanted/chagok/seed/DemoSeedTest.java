@@ -107,6 +107,8 @@ class DemoSeedTest {
         assertThat(jdbc.queryForObject(yearAndMileage, String.class, shopA, "66카0011")).isEqualTo("K3|-|-");
         assertThat(jdbc.queryForObject(yearAndMileage, String.class, shopA, "78라0004")).isEqualTo("K5|2020|45000");
         assertThat(jdbc.queryForObject(yearAndMileage, String.class, shopA, "55차0010")).isEqualTo("쏘나타|2018|97000");
+        // 차종 표기는 "쏘나타"로 통일 (07 7.2의 34나0002 "소나타" 표기는 docs에서 정리)
+        assertThat(jdbc.queryForObject(yearAndMileage, String.class, shopA, "34나0002")).isEqualTo("쏘나타|2018|60000");
         // 한 고객 여러 차량: 오세훈 2대
         assertThat(count(jdbc, "SELECT COUNT(*) FROM vehicle v JOIN customer c ON c.id = v.customer_id WHERE c.name = '오세훈'"))
             .isEqualTo(2);

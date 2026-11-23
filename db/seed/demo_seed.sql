@@ -142,7 +142,7 @@ INSERT INTO vehicle (shop_id, customer_id, plate_number, model, model_year, late
 VALUES (@shop_a, @c_kim, '12가0001', '아반떼', 2019, 40000, @created_customer, @created_customer);
 SET @v_12ga = LAST_INSERT_ID();
 INSERT INTO vehicle (shop_id, customer_id, plate_number, model, model_year, latest_mileage, created_at, updated_at)
-VALUES (@shop_a, @c_lee, '34나0002', '소나타', 2018, 60000, @created_customer, @created_customer);
+VALUES (@shop_a, @c_lee, '34나0002', '쏘나타', 2018, 60000, @created_customer, @created_customer);
 SET @v_34na = LAST_INSERT_ID();
 INSERT INTO vehicle (shop_id, customer_id, plate_number, model, model_year, latest_mileage, created_at, updated_at)
 VALUES (@shop_a, @c_park, '56다0003', '그랜저', 2017, 80000, @created_customer, @created_customer);

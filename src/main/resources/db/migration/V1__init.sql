@@ -1,19 +1,27 @@
 -- =====================================================================
 -- V1__init.sql — P0-핵심 기준 스키마 (chagok-backend#4, 12 백로그 B-3)
--- 원본: chagok-docs docs/07_data_ERD_DB설계서.md (develop b0f30b6, docs PR #13)
+-- 원본: chagok-docs docs/07_data_ERD_DB설계서.md (develop cdb7ecc: docs PR #13, #24·#25 결정 D-51·D-57, #28)
 --   1장 원칙 · 3장 테이블 · 5.1 복합 FK · 6.1 생성 순서·이름 규칙
 --
 -- - 9개 테이블. 생성 순서는 07 6.1 (부모가 먼저).
--- - 복합 FK 6개 (shop_id, 부모_id) → 부모(shop_id, id). 부모 쪽 UNIQUE(shop_id, id) 4개는
---   부모의 CREATE TABLE 안에 둔다 (customer · vehicle · service_item · reservation).
--- - 단일 FK 10개: shop_id 7개, staff 2개, platform_admin 1개. 삭제·수정 동작은 모두 기본값(RESTRICT).
+-- - 복합 FK 8개 (shop_id, 부모_id) → 부모(shop_id, id). 07 5.1의 6개 + 담당 정비사 2개
+--   (reservation.assignee_staff_id, maintenance_record.staff_id → staff, D-51·D-57).
+--   부모 쪽 UNIQUE(shop_id, id) 5개는 부모의 CREATE TABLE 안에 둔다
+--   (staff · customer · vehicle · service_item · reservation).
+-- - 단일 FK 9개: shop_id 7개, reservation.created_by_staff_id 1개, platform_admin 1개.
+--   삭제·수정 동작은 모두 기본값(RESTRICT).
 -- - created_at · updated_at 은 DATETIME NOT NULL, DEFAULT · ON UPDATE 없음 (값은 서버 JPA Auditing + Clock).
 -- - 제약 이름: uk_{테이블}_{칼럼} · fk_{자식}_{부모} · ck_{테이블}_{칼럼} · idx_{테이블}_{칼럼}.
---   예외 1건: maintenance_record 의 (shop_id, vehicle_id, service_item_id, record_date) 인덱스는
---   규칙대로면 69자라 MySQL 식별자 한도(64자)를 넘어 idx_maintenance_record_shop_vehicle_item_date 로 줄였다.
---   칼럼·순서는 07 3.7 그대로. 07 반영은 후속 문서 작업.
--- - V1에 넣지 않는 것 (07 4장): maintenance_record.inspect_result, reservation.status 'NO_SHOW',
---   customer.version · vehicle.version, contact_log. 시연 시드·기본 기준표 행도 넣지 않는다 (07 7장).
+--   예외 2건 (07 6.1 이름 예외 표):
+--   ① maintenance_record 의 (shop_id, vehicle_id, service_item_id, record_date) 인덱스는
+--      규칙대로면 69자라 MySQL 식별자 한도(64자)를 넘어 idx_maintenance_record_shop_vehicle_item_date 로 줄였다.
+--      칼럼·순서는 07 3.7 그대로.
+--   ② reservation 은 staff 를 두 번 가리킨다. 등록자 FK는 규칙대로 fk_reservation_staff,
+--      담당 정비사 FK는 이름이 겹치지 않게 fk_reservation_assignee_staff.
+-- - V1에 넣지 않는 것 (07 4장): maintenance_record.inspect_result · updated_at · version,
+--   reservation.status 'IN_PROGRESS' · 'NO_SHOW', customer.version · vehicle.version,
+--   maintenance_record_revision · reservation_revision (V2), customer.status · anonymized_at,
+--   vehicle.active, staff.active, contact_log (V3). 시연 시드·기본 기준표 행도 넣지 않는다 (07 7장).
 -- - 이 파일은 develop 머지 후 고치지 않는다. 바꿀 것은 새 버전 파일로.
 -- =====================================================================
 
@@ -54,6 +62,7 @@ CREATE TABLE staff (
     created_at               DATETIME     NOT NULL,
     PRIMARY KEY (id),
     CONSTRAINT uk_staff_login_id UNIQUE (login_id),
+    CONSTRAINT uk_staff_shop_id_id UNIQUE (shop_id, id), -- 담당 정비사 복합 FK의 부모 키 (07 3.3, D-51·D-57)
     CONSTRAINT ck_staff_role CHECK (role IN ('OWNER', 'MECHANIC')),
     INDEX idx_staff_shop_id (shop_id),
     CONSTRAINT fk_staff_shop FOREIGN KEY (shop_id) REFERENCES shop (id)
@@ -114,7 +123,8 @@ CREATE TABLE vehicle (
     CONSTRAINT fk_vehicle_customer FOREIGN KEY (shop_id, customer_id) REFERENCES customer (shop_id, id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
--- 7. maintenance_record — 정비 기록, 항목마다 1행 (07 3.7). 수정·삭제 없음 → updated_at 없음
+-- 7. maintenance_record — 정비 기록, 항목마다 1행 (07 3.7). 삭제 없음.
+--    수정(F-MNT-04, D-55)용 updated_at · version 은 V2 에서 더한다
 CREATE TABLE maintenance_record (
     id              BIGINT       NOT NULL AUTO_INCREMENT,
     shop_id         BIGINT       NOT NULL,
@@ -137,15 +147,17 @@ CREATE TABLE maintenance_record (
     INDEX idx_maintenance_record_shop_vehicle_item_date (shop_id, vehicle_id, service_item_id, record_date),
     INDEX idx_maintenance_record_shop_id_service_item_id (shop_id, service_item_id),
     INDEX idx_maintenance_record_shop_id_visit_key (shop_id, visit_key),
-    INDEX idx_maintenance_record_staff_id (staff_id),
+    INDEX idx_maintenance_record_shop_id_staff_id (shop_id, staff_id),
     CONSTRAINT fk_maintenance_record_shop FOREIGN KEY (shop_id) REFERENCES shop (id),
     CONSTRAINT fk_maintenance_record_vehicle FOREIGN KEY (shop_id, vehicle_id) REFERENCES vehicle (shop_id, id),
     CONSTRAINT fk_maintenance_record_service_item FOREIGN KEY (shop_id, service_item_id) REFERENCES service_item (shop_id, id),
-    CONSTRAINT fk_maintenance_record_staff FOREIGN KEY (staff_id) REFERENCES staff (id)
+    -- 담당 정비사: P0-나머지부터 요청 값(mechanicId)이라 복합 FK (07 5.1, D-57)
+    CONSTRAINT fk_maintenance_record_staff FOREIGN KEY (shop_id, staff_id) REFERENCES staff (shop_id, id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
--- 8. reservation — 예약 (07 3.8). 정비 기록과 잇는 칼럼 없음 (관문 1 결정 C)
---    ck_reservation_status 는 V2 가 DROP CHECK 후 'NO_SHOW' 를 더해 다시 만든다 (이름 고정)
+-- 8. reservation — 예약 (07 3.8). 정비 기록과 잇는 칼럼 없음 (M1 결정 C)
+--    ck_reservation_status 는 V2 가 DROP CHECK 후 'IN_PROGRESS' · 'NO_SHOW' 를 더해 다시 만든다 (이름 고정)
+--    assignee_staff_id: 담당 정비사 (D-51). P0-핵심은 서버가 등록자로 채우고, P0-나머지부터 요청 값(assigneeId)
 CREATE TABLE reservation (
     id                  BIGINT       NOT NULL AUTO_INCREMENT,
     shop_id             BIGINT       NOT NULL,
@@ -154,6 +166,7 @@ CREATE TABLE reservation (
     status              VARCHAR(20)  NOT NULL,
     purpose_other       BOOLEAN      NOT NULL DEFAULT FALSE,
     purpose_memo        VARCHAR(200) NULL,
+    assignee_staff_id   BIGINT       NOT NULL,
     created_by_staff_id BIGINT       NOT NULL,
     version             INT          NOT NULL DEFAULT 0,
     created_at          DATETIME     NOT NULL,
@@ -164,9 +177,11 @@ CREATE TABLE reservation (
     CONSTRAINT ck_reservation_status CHECK (status IN ('RESERVED', 'COMPLETED', 'CANCELED')),
     INDEX idx_reservation_shop_id_reserved_at (shop_id, reserved_at),
     INDEX idx_reservation_shop_id_vehicle_id_status_reserved_at (shop_id, vehicle_id, status, reserved_at),
+    INDEX idx_reservation_shop_id_assignee_staff_id_reserved_at (shop_id, assignee_staff_id, reserved_at),
     INDEX idx_reservation_created_by_staff_id (created_by_staff_id),
     CONSTRAINT fk_reservation_shop FOREIGN KEY (shop_id) REFERENCES shop (id),
     CONSTRAINT fk_reservation_vehicle FOREIGN KEY (shop_id, vehicle_id) REFERENCES vehicle (shop_id, id),
+    CONSTRAINT fk_reservation_assignee_staff FOREIGN KEY (shop_id, assignee_staff_id) REFERENCES staff (shop_id, id),
     CONSTRAINT fk_reservation_staff FOREIGN KEY (created_by_staff_id) REFERENCES staff (id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 

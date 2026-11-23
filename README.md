@@ -11,13 +11,13 @@
 
 ## 지금 상태
 
-초기 구성(B-0)과 DB 기반(B-3)이 끝난 상태입니다. Flyway `V1__init.sql`(07 기준 P0-핵심 9개 테이블)과 시연 시드가 `develop`에 있고, 각 도메인은 이 스키마 위에서 Entity를 만들어 시작합니다(DB를 따로 설계·수정하지 않음). 다음은 global 기반(B-1, chagok-backend#11)입니다.
+초기 구성(B-0), DB 기반(B-3), global 공통 기반(B-1, chagok-backend#11)이 들어간 상태입니다. Flyway `V1__init.sql`(07 기준 P0-핵심 9개 테이블)과 시연 시드가 있고, 인증·응답·오류·시각·요청 ID·쪽 나누기는 `global`에 있습니다. 각 도메인은 이 스키마와 `global` 위에서 Entity·API를 만들어 시작합니다(DB를 따로 설계·수정하지 않음). 다음은 P0-핵심 도메인 이슈(12 백로그 4장, cycle·account부터)입니다.
 
 | 항목 | 내용 |
 |---|---|
 | 기술 | Java 21, Spring Boot 4.1.2, Spring Data JPA, Spring Security, MySQL 8, Flyway, Gradle 9.8.2 (Wrapper 포함) |
-| 패키지 | `com.wanted.chagok` — `global` / `domain` / `screen` (CONVENTIONS 2장). 지금은 각 패키지 역할만 `package-info.java`로 적어 둠 |
-| 보안 | `SecurityConfig`: `/actuator/health`만 열고 나머지는 모두 닫힘. JWT·API 규칙은 인증 `기반` 이슈(B-1) |
+| 패키지 | `com.wanted.chagok` — `global` / `domain` / `screen` (CONVENTIONS 2장). `global`은 공통 기반 구현(아래 「공통 기반 사용법」), `domain`·`screen`은 각 기능 이슈에서 만듦 |
+| 보안 (B-1) | JWT(HS256, Spring Security OAuth2 Resource Server + Nimbus) 검증. `GET /actuator/health` 공개, `/api/admin/**` ADMIN, `/api/**` OWNER·MECHANIC, 그 밖 모두 거부. 401·403도 공통 응답 — 아래 「공통 기반 사용법」 |
 | DB | MySQL 8, `ddl-auto: validate`, `open-in-view: false`, `jdbc.time_zone: Asia/Seoul`, `spring.sql.init.mode: never`(schema.sql·data.sql 자동 실행 안 함), 테이블은 Flyway만 만듦 |
 | 마이그레이션 | `src/main/resources/db/migration/V1__init.sql` — 9개 테이블, 복합 FK 8개(`shop_id` 격리)·단일 FK 9개, UNIQUE·CHECK·인덱스 (07 3장·6.1). `develop`에 머지됐으므로 고치지 않는다. 다음은 `V2`(P0-나머지, M2 통합 검증 통과 후, 07 6장) |
 | 시연 데이터 | `db/seed/demo_seed.sql` (07 7장, classpath 밖, 서버가 자동으로 넣지 않음) — [`db/seed/README.md`](db/seed/README.md) |
@@ -31,7 +31,7 @@ chagok-backend/
 ├── db/seed/                                     시연 시드 (시연 전용 DB에만, 실행기로만)
 ├── src/main/java/com/wanted/chagok/
 │   ├── ChagokApplication.java
-│   ├── global/       config(SecurityConfig) · auth · error · response · web
+│   ├── global/       auth(JWT·LoginStaff·@CurrentStaff) · config(Security·Clock·Auditing·Jackson) · error · response · web
 │   ├── domain/       기능 이슈에서 도메인 패키지를 추가
 │   └── screen/       target · visit · booking (기능 이슈에서)
 ├── src/main/resources/
@@ -86,7 +86,7 @@ GRANT ALL ON chagok_test.* TO 'chagok'@'localhost';
 
 ### `dbTest`는 테스트 전용 DB로
 
-`dbTest`도 `.env`의 `DB_URL`을 읽습니다. 시드 테스트(`DemoSeedTest`)는 `shop`이 빈 DB를 전제로 하고, Flyway는 연결한 DB에 마이그레이션을 적용하므로 **개발 DB(`chagok`)로 돌리지 않습니다.** OS 환경변수가 `.env`보다 우선하므로 실행할 때만 테스트 DB로 바꿉니다.
+`dbTest`도 `.env`의 `DB_URL`을 읽습니다. 시드 테스트(`DemoSeedTest`)는 `shop`이 빈 DB를 전제로 하고, Flyway는 연결한 DB에 마이그레이션을 적용하므로 **개발 DB(`chagok`)로 돌리지 않습니다.** OS 환경변수가 `.env`보다 우선하므로 실행할 때만 테스트 DB로 바꿉니다. 앱을 띄우는 테스트라 `JWT_SECRET`도 필요합니다(`.env`에 있으면 그대로 쓰임, CI는 실행마다 임의 키를 만듦).
 
 ```bash
 # Git Bash
@@ -121,8 +121,27 @@ pr-check는 여기에 더해 **비밀값**(`.github/scripts/secret-scan.sh`)과 
 | `DB_URL` | `jdbc:mysql://localhost:3306/chagok?characterEncoding=UTF-8&serverTimezone=Asia/Seoul` | 개발 DB. `dbTest`는 실행할 때 테스트 DB로 바꿈(위) |
 | `DB_USERNAME` | | DB 담당자에게 받음 |
 | `DB_PASSWORD` | | DB 담당자에게 받음 |
+| `JWT_SECRET` | `openssl rand -base64 48`로 만든 값 | JWT 서명 키(HS256). **32바이트 이상**, 없거나 짧으면 서버가 뜨지 않는다. 각자 로컬에서 만들고 공유·커밋하지 않는다. CI db-test는 실행마다 새로 만든다 |
 
-공개 레포이므로 실제 값은 어디에도 커밋하지 않습니다. JWT 서명 키(`JWT_SECRET` 💡)는 인증 이슈에서 추가합니다.
+공개 레포이므로 실제 값은 어디에도 커밋하지 않습니다. `dbTest`도 앱을 띄우므로 `JWT_SECRET`이 필요합니다.
+
+## 공통 기반 사용법 (global, B-1)
+
+| 필요한 것 | 쓰는 법 |
+|---|---|
+| 로그인한 계정 | Controller 파라미터 `@CurrentStaff LoginStaff staff` → `staff.shopId()`로만 정비소 데이터 조회(요청의 shopId는 받지 않음, 08 0.1). 서비스 관리자는 `LoginAdmin`(shopId 없음) |
+| 성공 응답 | `return ApiResponse.ok(data);` — `{ success, data, error: null }` (08 0.2) |
+| 업무 오류 | `throw new BusinessException(ErrorCode.NOT_FOUND)`, 화면 안내 값이 있으면 `new BusinessException(code, Map.of("reservationId", id))`, 입력 하나가 틀렸으면 `BusinessException.invalidField("reservedAt", "30분 단위로 입력해 주세요.")`. Controller에서 try/catch 하지 않는다 |
+| 표준 예외 | `@Valid` 실패·잘못된 JSON·타입 불일치·필수 파라미터 누락·405·415 → 400 `INVALID_INPUT`, 없는 경로 → 404, `@Version` 충돌 → 409 `CONCURRENT_MODIFICATION`, 그 밖 → 500(내부 정보는 응답에 없음, 서버 로그에 요청 ID와 함께). DB 제약 위반을 `CONFLICT`로 바꾸지 않는다(08 0.3 M1 결정 A) |
+| ErrorCode | 08 0.3 P0-핵심 11개. 새 코드는 08과 같은 PR에서 |
+| 지금 시각 | `Clock` 빈 주입 → `LocalDate.now(clock)`. `now()` 직접 호출 금지. 테스트는 `Clock.fixed(…)` |
+| 생성·수정 시각 | Entity에 `@EntityListeners(AuditingEntityListener.class)` + `@CreatedDate`(updatable = false)·`@LastModifiedDate` (07 6.2). 값은 Clock 기준 |
+| 일시 JSON | `LocalDateTime` → `"2026-11-24T10:00:00"`(시간대·소수 초 없음), `LocalDate` → `"2026-11-24"` (08 0.1) |
+| 쪽 나누기 | `PageLimit limit = PageLimit.of(page, size)` (생략 0·20, 50 초과 → 50, 음수·0 이하 400) → `PageRequest.of(limit.page(), limit.size(), sort)`는 도메인에서 |
+| 새 API 경로 | `SecurityConfig`에 등록하지 않은 경로는 닫혀 있다. `/api/**`·`/api/admin/**` 밖의 공개 경로(로그인 01·02)는 그 API 이슈에서 추가 |
+| 요청 로그 | 모든 로그 줄에 `[요청 ID]`. 요청 끝에 메서드·경로·상태·시간 한 줄(쿼리스트링·토큰은 남기지 않음) |
+
+토큰 클레임 규약(`sub`·`role`·`shopId`·`exp`)은 `global/auth/TokenClaims.java` 주석. 테스트에서 토큰이 필요하면 `src/test/…/global/auth/TestJwts`를 쓴다(운영 코드에는 토큰 발급기가 없다).
 
 ## DB·Flyway 규칙
 
@@ -141,12 +160,13 @@ pr-check는 여기에 더해 **비밀값**(`.github/scripts/secret-scan.sh`)과 
 
 | 무엇 | 언제 |
 |---|---|
-| JWT 라이브러리·인증 필터, ErrorCode(08 0.3)·공통 응답(`details` 포함), Clock, PageLimit, `EndpointGuardTest` | 백엔드 `기반` 이슈 (12 백로그 B-1, 테스트 설계는 12 9장·TEST 명세 E1~E5) |
+| 로그인 API 01~03·토큰 발급(만료 12시간, `TokenClaims` 규약), 로그인 경로 공개 규칙 | `[F-AUTH-01]` (12 백로그 2번, domain/account) |
+| **이미 발급된 토큰의 계정 상태 재검증** (비활성 정비사·정지 정비소의 기존 토큰은 지금 만료(최대 12시간)까지 유효) | 정책 결정 chagok-docs#64 → P1 정비사 비활성화(34-3) 착수 전, 실제 운영·최종 보안 검증 전 |
 | `V2`(P0-나머지: `inspect_result`, 예약 상태 `IN_PROGRESS`·`NO_SHOW`, `customer`·`vehicle` `version`, 정비 기록 `updated_at`·`version`, 이력 표 2개) | M2 통합 검증 통과 후 P0-나머지 착수 때 DB 담당자 (07 6장, 12 백로그 V2) |
 | `V3`(P1) | P0-나머지 완료 뒤 (07 6장, D-56 칼럼은 POL-46 확인 후) |
 | 도메인·screen 패키지 | 각 기능 이슈 |
 
-JWT 라이브러리는 Spring Boot 4가 Jackson 3을 쓰기 때문에, 고를 때 Jackson 3·Spring Security 7과 맞는지 확인한다(예: Spring Security의 `oauth2-resource-server`(Nimbus) 또는 JJWT).
+JWT는 B-1에서 Spring Security `oauth2-resource-server`(Nimbus JOSE)로 정했다(Jackson에 의존하지 않아 Spring Boot 4의 Jackson 3과 충돌 없음).
 
 ## 작업 폴더와 AI 설정
 

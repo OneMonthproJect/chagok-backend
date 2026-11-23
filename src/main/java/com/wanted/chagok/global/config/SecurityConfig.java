@@ -1,29 +1,68 @@
 package com.wanted.chagok.global.config;
 
+import com.wanted.chagok.global.auth.JwtVerification;
+import com.wanted.chagok.global.auth.SecurityErrorResponder;
+import java.time.Clock;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpMethod;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
+import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.security.web.SecurityFilterChain;
+import tools.jackson.databind.json.JsonMapper;
 
 /**
- * 초기 설정: 헬스 체크만 열고 나머지는 모두 닫는다 (CONVENTIONS 8장 "기본 거부").
- * JWT 필터와 API별 규칙(/api/**, /api/admin/**)은 인증 `기반` 이슈에서 추가한다.
- * 새 API는 여기 등록하지 않으면 닫혀 있다.
+ * URL 권한 규칙은 이 파일 한 곳 (06 5장, CONVENTIONS 8장 "기본 거부").
+ *
+ * <ol>
+ *   <li>{@code GET /actuator/health} — 공개</li>
+ *   <li>{@code /api/admin/**} — 서비스 관리자(ADMIN)만. {@code /api/**}보다 먼저 둔다(순서가 바뀌면 관리자 API가 정비소 계정에 열린다)</li>
+ *   <li>{@code /api/**} — 사장·정비사(OWNER·MECHANIC). 서비스 관리자 토큰은 403 (08 X9)</li>
+ *   <li>그 밖 — 모두 거부. <b>새 API 경로는 여기 등록하지 않으면 닫혀 있다</b></li>
+ * </ol>
+ *
+ * <p>로그인 API(01 {@code /api/auth/login}, 02 {@code /api/admin/auth/login})의 공개 규칙과 P1 사장 전용 경로는
+ * 그 API가 생기는 이슈(F-AUTH-01, P1)에서 더한다. 인증 실패 401·권한 부족 403의 본문은 {@link SecurityErrorResponder}.
  */
 @Configuration
 public class SecurityConfig {
 
     @Bean
-    public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
+    public SecurityFilterChain securityFilterChain(HttpSecurity http, JwtDecoder jwtDecoder,
+        SecurityErrorResponder errorResponder) throws Exception {
         http
             .csrf(csrf -> csrf.disable())
             .httpBasic(basic -> basic.disable())
             .formLogin(form -> form.disable())
+            .logout(logout -> logout.disable())
             .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
             .authorizeHttpRequests(auth -> auth
-                .requestMatchers("/actuator/health").permitAll()
-                .anyRequest().denyAll());
+                .requestMatchers(HttpMethod.GET, "/actuator/health").permitAll()
+                .requestMatchers("/api/admin/**").hasRole("ADMIN")
+                .requestMatchers("/api/**").hasAnyRole("OWNER", "MECHANIC")
+                .anyRequest().denyAll())
+            .oauth2ResourceServer(oauth -> oauth
+                .jwt(jwt -> jwt
+                    .decoder(jwtDecoder)
+                    .jwtAuthenticationConverter(JwtVerification.authenticationConverter()))
+                .authenticationEntryPoint(errorResponder)
+                .accessDeniedHandler(errorResponder))
+            .exceptionHandling(ex -> ex
+                .authenticationEntryPoint(errorResponder)
+                .accessDeniedHandler(errorResponder));
         return http.build();
+    }
+
+    /** 키는 {@code JWT_SECRET} 환경변수(application.yaml {@code chagok.jwt.secret}). 없거나 32바이트 미만이면 기동 실패. */
+    @Bean
+    public JwtDecoder jwtDecoder(@Value("${chagok.jwt.secret}") String secret, Clock clock) {
+        return JwtVerification.decoder(secret, clock);
+    }
+
+    @Bean
+    public SecurityErrorResponder securityErrorResponder(JsonMapper jsonMapper) {
+        return new SecurityErrorResponder(jsonMapper);
     }
 }

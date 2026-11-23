@@ -33,9 +33,16 @@ import org.springframework.transaction.annotation.Transactional;
  * <p>테스트마다 트랜잭션이 롤백되므로 DB에 행이 남지 않는다. MySQL이 필요하다: {@code ./gradlew dbTest}
  * (CI는 backend-ci의 db-test 작업, 빈 MySQL 8.0). V1-11(시연 시드 적용)은 시드 이슈에서 확인한다.
  *
+ * <p>담당 정비사(D-51·D-57): {@code reservation.assignee_staff_id}와 {@code maintenance_record.staff_id}는
+ * {@code staff(shop_id, id)}를 가리키는 복합 FK다. V1-2(이름·칼럼 조합)와 V1-4(다른 정비소 거부 + 같은 정비소 허용),
+ * 담당 필수 확인(V1-4 보강)에서 본다.
+ *
  * <p>LIMIT: V1 시점 스냅샷이다. 이 테스트는 최신 마이그레이션까지 적용된 DB에서 돌므로, 다음 버전이 들어오면
- * 기대값을 그 버전 기준으로 옮긴다(07 6장): V2 PR에서 V1-8({@code NO_SHOW} 허용)·V1-12({@code inspect_result},
- * {@code customer.version}·{@code vehicle.version} 추가), P1 {@code contact_log} PR에서 V1-1(테이블 수)·V1-12.
+ * 기대값을 그 버전 기준으로 옮긴다(07 6장): V2 PR에서 V1-1(테이블 수: 이력 표 2개)·V1-2(이력 표 FK,
+ * {@code maintenance_record} UNIQUE(shop_id, id))·V1-8({@code IN_PROGRESS}·{@code NO_SHOW} 허용)·V1-12
+ * ({@code inspect_result}, {@code maintenance_record.updated_at}·{@code version}, {@code customer.version}·
+ * {@code vehicle.version}, 이력 표), V3(P1) PR에서 V1-1·V1-2({@code contact_log})·V1-12({@code customer.status}·
+ * {@code anonymized_at}, {@code vehicle.active}, {@code staff.active}, {@code contact_log}).
  * 명세가 바뀐 만큼만 옮기는 것이고 검증을 약하게 하는 것이 아니다(CONVENTIONS 12장).
  */
 @Tag("db")
@@ -47,6 +54,7 @@ class V1InitMigrationTest {
     private static final int CHECK_VIOLATION = 3819;
     private static final int DUPLICATE_KEY = 1062;
     private static final int NO_DEFAULT_VALUE = 1364;
+    private static final int COLUMN_CANNOT_BE_NULL = 1048;
 
     private static final String NOW = "2026-11-22 09:00:00";
     private static final String TODAY = "2026-11-22";
@@ -61,9 +69,10 @@ class V1InitMigrationTest {
     private static final String RECORD_SQL =
         "INSERT INTO maintenance_record (shop_id, vehicle_id, service_item_id, visit_key, record_date,"
             + " record_type, source, staff_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)";
+    // 인자 순서: shop_id, vehicle_id, reserved_at, status, assignee_staff_id(담당), created_by_staff_id(등록자), 시각 2개
     private static final String RESERVATION_SQL =
-        "INSERT INTO reservation (shop_id, vehicle_id, reserved_at, status, created_by_staff_id,"
-            + " created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)";
+        "INSERT INTO reservation (shop_id, vehicle_id, reserved_at, status, assignee_staff_id, created_by_staff_id,"
+            + " created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)";
     private static final String RESERVATION_ITEM_SQL =
         "INSERT INTO reservation_item (shop_id, reservation_id, service_item_id, created_at) VALUES (?, ?, ?, ?)";
     private static final String SERVICE_ITEM_SQL =
@@ -78,8 +87,9 @@ class V1InitMigrationTest {
     // 정비소 A·B에 같은 모양의 데이터를 하나씩 만든다 (이 INSERT들이 같은 정비소 정상 저장의 양성 대조)
     private long shopA;
     private long shopB;
-    private long staffA;
-    private long staffB;
+    private long staffA;     // A 정비소 사장
+    private long mechanicA;  // A 정비소 정비사 (등록자와 다른 담당 정비사의 양성 대조)
+    private long staffB;     // B 정비소 사장
     private long customerA;
     private long customerB;
     private long itemA;
@@ -95,8 +105,9 @@ class V1InitMigrationTest {
 
         shopA = insert("INSERT INTO shop (name, phone, created_at) VALUES (?, ?, ?)", "V1 검증 A", "02-0000-0001", NOW);
         shopB = insert("INSERT INTO shop (name, phone, created_at) VALUES (?, ?, ?)", "V1 검증 B", "02-0000-0002", NOW);
-        staffA = insertStaff(shopA, "v1test_owner_a");
-        staffB = insertStaff(shopB, "v1test_owner_b");
+        staffA = insertStaff(shopA, "v1test_owner_a", "OWNER");
+        mechanicA = insertStaff(shopA, "v1test_mech_a", "MECHANIC");
+        staffB = insertStaff(shopB, "v1test_owner_b", "OWNER");
         customerA = insertCustomer(shopA);
         customerB = insertCustomer(shopB);
         // 같은 code가 정비소만 다르면 허용된다 (UNIQUE(shop_id, code))
@@ -104,8 +115,11 @@ class V1InitMigrationTest {
         itemB = insert(SERVICE_ITEM_SQL, shopB, "ENGINE_OIL", "엔진오일", 6, 10000, 1, NOW);
         vehicleA = insert(VEHICLE_SQL, shopA, customerA, "12가3456", NOW, NOW);
         vehicleB = insert(VEHICLE_SQL, shopB, customerB, "34나5678", NOW, NOW);
-        reservationA = insert(RESERVATION_SQL, shopA, vehicleA, "2026-11-23 10:00:00", "RESERVED", staffA, NOW, NOW);
-        reservationB = insert(RESERVATION_SQL, shopB, vehicleB, "2026-11-23 10:00:00", "RESERVED", staffB, NOW, NOW);
+        // P0-핵심 모양: 담당 = 등록자 (서버가 등록자로 채움, 07 3.8)
+        reservationA = insert(RESERVATION_SQL,
+            shopA, vehicleA, "2026-11-23 10:00:00", "RESERVED", staffA, staffA, NOW, NOW);
+        reservationB = insert(RESERVATION_SQL,
+            shopB, vehicleB, "2026-11-23 10:00:00", "RESERVED", staffB, staffB, NOW, NOW);
     }
 
     @Test
@@ -124,7 +138,7 @@ class V1InitMigrationTest {
     }
 
     @Test
-    @DisplayName("V1-2 FK 목록: 복합 FK 6개 + 단일 FK 10개(shop_id 7, staff 2, admin 1), 모두 RESTRICT")
+    @DisplayName("V1-2 FK: 복합 8개 + 단일 9개(shop_id 7, 등록자 1, admin 1)의 이름·칼럼 조합, 모두 RESTRICT")
     void v1_2_foreignKeys() {
         List<Map<String, Object>> rows = jdbc.queryForList(
             "SELECT rc.constraint_name AS name, rc.table_name AS child, rc.referenced_table_name AS parent,"
@@ -148,8 +162,8 @@ class V1InitMigrationTest {
             assertThat((String) r.get("upd")).as("update rule of %s", r.get("name")).isIn("NO ACTION", "RESTRICT");
         }
 
-        Map<String, String> expected = new TreeMap<>(Map.ofEntries(
-            // 복합 FK 6개 (07 5.1)
+        Map<String, String> expectedComposite = new TreeMap<>(Map.ofEntries(
+            // 복합 FK 8개 (07 5.1): 기존 6개 + 담당 정비사 2개 (D-51·D-57)
             Map.entry("fk_vehicle_customer", "vehicle(shop_id,customer_id)->customer(shop_id,id)"),
             Map.entry("fk_maintenance_record_vehicle", "maintenance_record(shop_id,vehicle_id)->vehicle(shop_id,id)"),
             Map.entry("fk_maintenance_record_service_item",
@@ -159,6 +173,10 @@ class V1InitMigrationTest {
                 "reservation_item(shop_id,reservation_id)->reservation(shop_id,id)"),
             Map.entry("fk_reservation_item_service_item",
                 "reservation_item(shop_id,service_item_id)->service_item(shop_id,id)"),
+            Map.entry("fk_reservation_assignee_staff", "reservation(shop_id,assignee_staff_id)->staff(shop_id,id)"),
+            Map.entry("fk_maintenance_record_staff", "maintenance_record(shop_id,staff_id)->staff(shop_id,id)")));
+
+        Map<String, String> expectedSingle = new TreeMap<>(Map.ofEntries(
             // 단일 FK: shop_id 7개
             Map.entry("fk_staff_shop", "staff(shop_id)->shop(id)"),
             Map.entry("fk_customer_shop", "customer(shop_id)->shop(id)"),
@@ -167,12 +185,53 @@ class V1InitMigrationTest {
             Map.entry("fk_maintenance_record_shop", "maintenance_record(shop_id)->shop(id)"),
             Map.entry("fk_reservation_shop", "reservation(shop_id)->shop(id)"),
             Map.entry("fk_reservation_item_shop", "reservation_item(shop_id)->shop(id)"),
-            // 단일 FK: staff 2개, platform_admin 1개
-            Map.entry("fk_maintenance_record_staff", "maintenance_record(staff_id)->staff(id)"),
+            // 단일 FK: 등록자(토큰 값) 1개, platform_admin 1개
             Map.entry("fk_reservation_staff", "reservation(created_by_staff_id)->staff(id)"),
             Map.entry("fk_shop_platform_admin", "shop(created_by_admin_id)->platform_admin(id)")));
 
+        assertThat(expectedComposite).hasSize(8);
+        assertThat(expectedSingle).hasSize(9);
+        Map<String, String> expected = new TreeMap<>(expectedComposite);
+        expected.putAll(expectedSingle);
         assertThat(actual).isEqualTo(expected);
+
+        // UNIQUE 이름·칼럼 조합. (shop_id, id)는 복합 FK의 부모 키로 정확히 5개 테이블에 있다 (07 5.1)
+        List<Map<String, Object>> uniques = jdbc.queryForList(
+            "SELECT tc.constraint_name AS name, tc.table_name AS tbl,"
+                + " GROUP_CONCAT(k.column_name ORDER BY k.ordinal_position) AS cols"
+                + " FROM information_schema.table_constraints tc"
+                + " JOIN information_schema.key_column_usage k"
+                + "   ON k.constraint_schema = tc.constraint_schema"
+                + "  AND k.constraint_name = tc.constraint_name"
+                + "  AND k.table_name = tc.table_name"
+                + " WHERE tc.constraint_schema = DATABASE() AND tc.constraint_type = 'UNIQUE'"
+                + " GROUP BY tc.constraint_name, tc.table_name");
+        Map<String, String> actualUniques = new TreeMap<>();
+        for (Map<String, Object> r : uniques) {
+            actualUniques.put((String) r.get("name"), r.get("tbl") + "(" + r.get("cols") + ")");
+        }
+        assertThat(actualUniques).isEqualTo(new TreeMap<>(Map.ofEntries(
+            Map.entry("uk_platform_admin_login_id", "platform_admin(login_id)"),
+            Map.entry("uk_staff_login_id", "staff(login_id)"),
+            Map.entry("uk_staff_shop_id_id", "staff(shop_id,id)"),
+            Map.entry("uk_customer_shop_id_id", "customer(shop_id,id)"),
+            Map.entry("uk_service_item_shop_id_code", "service_item(shop_id,code)"),
+            Map.entry("uk_service_item_shop_id_id", "service_item(shop_id,id)"),
+            Map.entry("uk_vehicle_shop_id_id", "vehicle(shop_id,id)"),
+            Map.entry("uk_reservation_shop_id_id", "reservation(shop_id,id)"),
+            Map.entry("uk_reservation_item_reservation_id_service_item_id",
+                "reservation_item(reservation_id,service_item_id)"))));
+        assertThat(actualUniques.values().stream().filter(v -> v.endsWith("(shop_id,id)")))
+            .containsExactlyInAnyOrder("staff(shop_id,id)", "customer(shop_id,id)", "service_item(shop_id,id)",
+                "vehicle(shop_id,id)", "reservation(shop_id,id)");
+
+        // 담당 정비사 복합 FK를 받치는 인덱스 (07 3.7·3.8, 6.1)
+        assertThat(indexColumns("maintenance_record", "idx_maintenance_record_shop_id_staff_id"))
+            .isEqualTo("shop_id,staff_id");
+        assertThat(indexColumns("reservation", "idx_reservation_shop_id_assignee_staff_id_reserved_at"))
+            .isEqualTo("shop_id,assignee_staff_id,reserved_at");
+        assertThat(indexColumns("maintenance_record", "idx_maintenance_record_staff_id"))
+            .as("단일 FK 시절 인덱스는 없어야 한다").isNull();
     }
 
     @Test
@@ -182,7 +241,7 @@ class V1InitMigrationTest {
     }
 
     @Test
-    @DisplayName("V1-4 B 정비소 차량·항목으로 A 정비소 maintenance_record·reservation INSERT → 1452")
+    @DisplayName("V1-4 B 정비소 차량·항목·정비사로 A 정비소 maintenance_record·reservation INSERT → 1452, 같은 정비소는 성공")
     void v1_4_recordAndReservationCannotPointToOtherShopsParents() {
         // 양성 대조: 같은 정비소 부모로는 저장된다
         insert(RECORD_SQL, shopA, vehicleA, itemA, VISIT_KEY, TODAY, "REPLACE", "SHOP", staffA, NOW);
@@ -190,7 +249,51 @@ class V1InitMigrationTest {
         assertRejected(FK_VIOLATION, RECORD_SQL, shopA, vehicleB, itemA, VISIT_KEY, TODAY, "REPLACE", "SHOP", staffA, NOW);
         assertRejected(FK_VIOLATION, RECORD_SQL, shopA, vehicleA, itemB, VISIT_KEY, TODAY, "REPLACE", "SHOP", staffA, NOW);
         assertRejected(FK_VIOLATION, RESERVATION_SQL,
-            shopA, vehicleB, "2026-11-24 10:00:00", "RESERVED", staffA, NOW, NOW);
+            shopA, vehicleB, "2026-11-24 10:00:00", "RESERVED", staffA, staffA, NOW, NOW);
+    }
+
+    @Test
+    @DisplayName("V1-4 담당 정비사: 같은 정비소 정비사는 저장, B 정비소 정비사 → 1452 (reservation·maintenance_record)")
+    void v1_4_assigneeMustBelongToSameShop() {
+        // 양성 대조: 같은 정비소의 다른 계정(정비사)을 담당으로 저장할 수 있다 (등록자 ≠ 담당, P0-나머지 모양)
+        long reservation = insert(RESERVATION_SQL,
+            shopA, vehicleA, "2026-11-24 10:00:00", "RESERVED", mechanicA, staffA, NOW, NOW);
+        assertThat(jdbc.queryForMap(
+            "SELECT shop_id, assignee_staff_id, created_by_staff_id FROM reservation WHERE id = ?", reservation))
+            .containsEntry("shop_id", shopA)
+            .containsEntry("assignee_staff_id", mechanicA)
+            .containsEntry("created_by_staff_id", staffA);
+        long record = insert(RECORD_SQL, shopA, vehicleA, itemA, VISIT_KEY, TODAY, "REPLACE", "SHOP", mechanicA, NOW);
+        assertThat(jdbc.queryForMap("SELECT shop_id, staff_id FROM maintenance_record WHERE id = ?", record))
+            .containsEntry("shop_id", shopA)
+            .containsEntry("staff_id", mechanicA);
+
+        // 다른 정비소 정비사를 담당으로 → 복합 FK가 막는다 (07 5.1, D-51·D-57)
+        assertRejectedBy(FK_VIOLATION, "fk_reservation_assignee_staff", RESERVATION_SQL,
+            shopA, vehicleA, "2026-11-24 11:00:00", "RESERVED", staffB, staffA, NOW, NOW);
+        assertRejectedBy(FK_VIOLATION, "fk_maintenance_record_staff", RECORD_SQL,
+            shopA, vehicleA, itemA, VISIT_KEY, TODAY, "REPLACE", "SHOP", staffB, NOW);
+    }
+
+    @Test
+    @DisplayName("V1-4 보강: reservation.assignee_staff_id 필수 — 빼면 1364, NULL이면 1048")
+    void v1_4_assigneeStaffIsRequired() {
+        // 1364는 strict 모드에서만 오류다. 모드가 꺼져 있으면 이 검증이 의미 없으므로 먼저 확인한다
+        assertThat(jdbc.queryForObject("SELECT @@SESSION.sql_mode", String.class)).contains("STRICT_TRANS_TABLES");
+
+        assertThat(jdbc.queryForMap(
+            "SELECT is_nullable, column_default, data_type FROM information_schema.columns"
+                + " WHERE table_schema = DATABASE() AND table_name = 'reservation' AND column_name = 'assignee_staff_id'"))
+            .containsEntry("is_nullable", "NO")
+            .containsEntry("column_default", null)
+            .containsEntry("data_type", "bigint");
+
+        assertRejected(NO_DEFAULT_VALUE,
+            "INSERT INTO reservation (shop_id, vehicle_id, reserved_at, status, created_by_staff_id, created_at, updated_at)"
+                + " VALUES (?, ?, ?, ?, ?, ?, ?)",
+            shopA, vehicleA, "2026-11-24 12:00:00", "RESERVED", staffA, NOW, NOW);
+        assertRejected(COLUMN_CANNOT_BE_NULL, RESERVATION_SQL,
+            shopA, vehicleA, "2026-11-24 12:00:00", "RESERVED", null, staffA, NOW, NOW);
     }
 
     @Test
@@ -205,12 +308,12 @@ class V1InitMigrationTest {
     @Test
     @DisplayName("V1-6 reserved_at 10:15 / 10:30:15 INSERT → 3819 (CHECK)")
     void v1_6_reservedAtMustBeHalfHourWithZeroSeconds() {
-        insert(RESERVATION_SQL, shopA, vehicleA, "2026-11-24 10:30:00", "RESERVED", staffA, NOW, NOW); // 양성 대조
+        insert(RESERVATION_SQL, shopA, vehicleA, "2026-11-24 10:30:00", "RESERVED", staffA, staffA, NOW, NOW); // 양성 대조
 
-        assertRejected(CHECK_VIOLATION, RESERVATION_SQL,
-            shopA, vehicleA, "2026-11-24 10:15:00", "RESERVED", staffA, NOW, NOW);
-        assertRejected(CHECK_VIOLATION, RESERVATION_SQL,
-            shopA, vehicleA, "2026-11-24 10:30:15", "RESERVED", staffA, NOW, NOW);
+        assertRejectedBy(CHECK_VIOLATION, "ck_reservation_reserved_at", RESERVATION_SQL,
+            shopA, vehicleA, "2026-11-24 10:15:00", "RESERVED", staffA, staffA, NOW, NOW);
+        assertRejectedBy(CHECK_VIOLATION, "ck_reservation_reserved_at", RESERVATION_SQL,
+            shopA, vehicleA, "2026-11-24 10:30:15", "RESERVED", staffA, staffA, NOW, NOW);
     }
 
     @Test
@@ -228,10 +331,15 @@ class V1InitMigrationTest {
     }
 
     @Test
-    @DisplayName("V1-8 reservation.status = 'NO_SHOW' INSERT → 3819 (V1에는 없음, V2에서 허용)")
-    void v1_8_noShowIsNotAllowedInV1() {
-        assertRejected(CHECK_VIOLATION, RESERVATION_SQL,
-            shopA, vehicleA, "2026-11-24 11:00:00", "NO_SHOW", staffA, NOW, NOW);
+    @DisplayName("V1-8 reservation.status = 'IN_PROGRESS'·'NO_SHOW' INSERT → 3819 ck_reservation_status (V1에는 없음, V2에서 허용)")
+    void v1_8_inProgressAndNoShowAreNotAllowedInV1() {
+        // 양성 대조: 같은 행 모양에 V1 상태값이면 저장된다 (상태값만 바꿔 거부 이유를 상태 CHECK로 좁힌다)
+        insert(RESERVATION_SQL, shopA, vehicleA, "2026-11-24 11:00:00", "COMPLETED", staffA, staffA, NOW, NOW);
+
+        assertRejectedBy(CHECK_VIOLATION, "ck_reservation_status", RESERVATION_SQL,
+            shopA, vehicleA, "2026-11-24 11:30:00", "IN_PROGRESS", staffA, staffA, NOW, NOW);
+        assertRejectedBy(CHECK_VIOLATION, "ck_reservation_status", RESERVATION_SQL,
+            shopA, vehicleA, "2026-11-24 11:30:00", "NO_SHOW", staffA, staffA, NOW, NOW);
     }
 
     @Test
@@ -259,7 +367,7 @@ class V1InitMigrationTest {
     }
 
     @Test
-    @DisplayName("V1-12 V1에 P0-나머지·P1 칼럼·값이 없음 (칼럼 목록이 07 3장과 같음)")
+    @DisplayName("V1-12 V1에 P0-나머지·P1 표·칼럼·값이 없고, 있어야 할 칼럼(assignee_staff_id 등)은 있음")
     void v1_12_noLaterStageColumnsOrValues() {
         Map<String, List<String>> expectedColumns = Map.of(
             "platform_admin", List.of("id", "login_id", "password_hash", "name", "created_at"),
@@ -274,29 +382,44 @@ class V1InitMigrationTest {
             "maintenance_record", List.of("id", "shop_id", "vehicle_id", "service_item_id", "visit_key",
                 "record_date", "mileage", "record_type", "source", "staff_id", "memo", "created_at"),
             "reservation", List.of("id", "shop_id", "vehicle_id", "reserved_at", "status", "purpose_other",
-                "purpose_memo", "created_by_staff_id", "version", "created_at", "updated_at"),
+                "purpose_memo", "assignee_staff_id", "created_by_staff_id", "version", "created_at", "updated_at"),
             "reservation_item", List.of("id", "shop_id", "reservation_id", "service_item_id", "created_at"));
 
+        // 1) 칼럼 목록 전체가 07 3장(V1)과 같다
         for (String table : TABLES) {
-            List<String> columns = jdbc.queryForList(
-                "SELECT column_name AS c FROM information_schema.columns"
-                    + " WHERE table_schema = DATABASE() AND table_name = ? ORDER BY ordinal_position",
-                String.class, table);
-            assertThat(columns).as("columns of %s", table).isEqualTo(expectedColumns.get(table));
+            assertThat(columnsOf(table)).as("columns of %s", table).isEqualTo(expectedColumns.get(table));
         }
-        // 이 단언들은 위 목록에 이미 포함되지만, 07 4장의 대상을 이름으로 남긴다
-        assertThat(expectedColumns.get("maintenance_record")).doesNotContain("inspect_result");
-        assertThat(expectedColumns.get("customer")).doesNotContain("version");
-        assertThat(expectedColumns.get("vehicle")).doesNotContain("version");
-        assertThat(jdbc.queryForObject(
-            "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = 'contact_log'",
-            Integer.class)).isZero();
 
+        // 2) 반드시 있어야 할 칼럼 (V1에 들어간 D-51·D-57 담당 정비사)
+        Map<String, List<String>> mustExist = Map.of(
+            "reservation", List.of("assignee_staff_id", "created_by_staff_id"),
+            "maintenance_record", List.of("staff_id"));
+        mustExist.forEach((table, columns) ->
+            assertThat(columnsOf(table)).as("must exist in %s", table).containsAll(columns));
+
+        // 3) 없어야 할 표 (V2 이력 표, V3 연락 기록) — 07 4장
+        for (String table : List.of("maintenance_record_revision", "reservation_revision", "contact_log")) {
+            assertThat(jdbc.queryForObject(
+                "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = ?",
+                Integer.class, table)).as("table %s must not exist in V1", table).isZero();
+        }
+
+        // 4) 없어야 할 칼럼 (V2: P0-나머지, V3: P1) — 07 4장
+        Map<String, List<String>> mustNotExist = Map.of(
+            "maintenance_record", List.of("inspect_result", "updated_at", "version"),
+            "customer", List.of("version", "status", "anonymized_at"),
+            "vehicle", List.of("version", "active"),
+            "staff", List.of("active"));
+        mustNotExist.forEach((table, columns) ->
+            assertThat(columnsOf(table)).as("must not exist in %s", table).doesNotContainAnyElementsOf(columns));
+
+        // 5) 없어야 할 값: 예약 상태 IN_PROGRESS·NO_SHOW (V2)
         String statusCheck = jdbc.queryForObject(
             "SELECT check_clause FROM information_schema.check_constraints"
                 + " WHERE constraint_schema = DATABASE() AND constraint_name = 'ck_reservation_status'",
             String.class);
-        assertThat(statusCheck).contains("RESERVED", "COMPLETED", "CANCELED").doesNotContain("NO_SHOW");
+        assertThat(statusCheck).contains("RESERVED", "COMPLETED", "CANCELED")
+            .doesNotContain("IN_PROGRESS").doesNotContain("NO_SHOW");
     }
 
     @Test
@@ -337,9 +460,24 @@ class V1InitMigrationTest {
 
     // ---------- helpers ----------
 
-    private long insertStaff(long shopId, String loginId) {
+    private long insertStaff(long shopId, String loginId, String role) {
         return insert("INSERT INTO staff (shop_id, login_id, password_hash, name, role, created_at)"
-            + " VALUES (?, ?, ?, ?, ?, ?)", shopId, loginId, "{noop}x", "검증 사장", "OWNER", NOW);
+            + " VALUES (?, ?, ?, ?, ?, ?)", shopId, loginId, "{noop}x", "검증 " + role, role, NOW);
+    }
+
+    private List<String> columnsOf(String table) {
+        return jdbc.queryForList(
+            "SELECT column_name AS c FROM information_schema.columns"
+                + " WHERE table_schema = DATABASE() AND table_name = ? ORDER BY ordinal_position",
+            String.class, table);
+    }
+
+    /** 인덱스 칼럼을 순서대로 쉼표로 이어 돌려준다. 인덱스가 없으면 null. */
+    private String indexColumns(String table, String indexName) {
+        return jdbc.queryForObject(
+            "SELECT GROUP_CONCAT(column_name ORDER BY seq_in_index) FROM information_schema.statistics"
+                + " WHERE table_schema = DATABASE() AND table_name = ? AND index_name = ?",
+            String.class, table, indexName);
     }
 
     private long insertCustomer(long shopId) {
@@ -364,6 +502,26 @@ class V1InitMigrationTest {
         assertThat(thrown).as("should be rejected: %s", sql).isNotNull();
         assertThat(mysqlErrorCode(thrown)).as("MySQL error code for: %s (%s)", sql, thrown.getMessage())
             .isEqualTo(expectedErrorCode);
+    }
+
+    /** 오류 번호와 함께, 어느 제약이 막았는지(MySQL 메시지의 제약 이름)까지 확인한다. */
+    private void assertRejectedBy(int expectedErrorCode, String constraintName, String sql, Object... args) {
+        Throwable thrown = catchThrowable(() -> jdbc.update(sql, args));
+        assertThat(thrown).as("should be rejected by %s: %s", constraintName, sql).isNotNull();
+        assertThat(mysqlErrorCode(thrown)).as("MySQL error code for: %s (%s)", sql, thrown.getMessage())
+            .isEqualTo(expectedErrorCode);
+        // FK(1452)는 `이름`, CHECK(3819)는 '이름' 으로 메시지에 나온다
+        assertThat(mysqlMessage(thrown)).as("violated constraint for: %s", sql)
+            .containsAnyOf("`" + constraintName + "`", "'" + constraintName + "'");
+    }
+
+    private static String mysqlMessage(Throwable t) {
+        for (Throwable cur = t; cur != null; cur = cur.getCause()) {
+            if (cur instanceof SQLException e && e.getErrorCode() != 0) {
+                return e.getMessage();
+            }
+        }
+        return "";
     }
 
     private static int mysqlErrorCode(Throwable t) {

@@ -17,6 +17,7 @@ import com.wanted.chagok.domain.customer.dto.CustomerSearchResponse;
 import com.wanted.chagok.domain.customer.service.CustomerService;
 import com.wanted.chagok.global.auth.TestJwts;
 import com.wanted.chagok.global.config.ClockConfig;
+import com.wanted.chagok.global.config.JacksonConfig;
 import com.wanted.chagok.global.config.SecurityConfig;
 import com.wanted.chagok.global.error.BusinessException;
 import com.wanted.chagok.global.error.ErrorCode;
@@ -41,7 +42,7 @@ import org.springframework.test.web.servlet.ResultActions;
  * 저장 정합성·격리(X1·X2)는 {@link CustomerServiceDbTest}.
  */
 @WebMvcTest(CustomerController.class)
-@Import({SecurityConfig.class, ClockConfig.class, GlobalExceptionHandler.class})
+@Import({SecurityConfig.class, ClockConfig.class, JacksonConfig.class, GlobalExceptionHandler.class})
 @TestPropertySource(properties = "chagok.jwt.secret=" + CustomerControllerTest.SECRET)
 class CustomerControllerTest {
 
@@ -244,6 +245,8 @@ class CustomerControllerTest {
         register(bodyWithVehicle(tpl.formatted("0"))).andExpect(status().isOk());
         register(bodyWithVehicle(tpl.formatted("2000000"))).andExpect(status().isOk());
         register(bodyWithVehicle(tpl.formatted("\"abc\""))).andExpect(status().isBadRequest());
+        // 정수가 아닌 값은 400 (08 0.1). 소수가 잘려서 저장되면 안 된다
+        register(bodyWithVehicle(tpl.formatted("1.5"))).andExpect(status().isBadRequest());
     }
 
     @Test
@@ -255,6 +258,7 @@ class CustomerControllerTest {
         register(bodyWithVehicle(tpl.formatted("1979"))).andExpect(status().isBadRequest())
             .andExpect(jsonPath("$.error.fieldErrors[0].field").value("vehicle.modelYear"));
         register(bodyWithVehicle(tpl.formatted("1980"))).andExpect(status().isOk());
+        register(bodyWithVehicle(tpl.formatted("2019.5"))).andExpect(status().isBadRequest());
     }
 
     @Test

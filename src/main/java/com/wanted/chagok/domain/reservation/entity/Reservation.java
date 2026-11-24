@@ -119,6 +119,16 @@ public class Reservation {
         this.status = ReservationStatus.COMPLETED;
     }
 
+    /**
+     * "처리 필요" 표시 (08 15번 {@code needsAction}, D-23): 상태가 {@code RESERVED}인데 예약 시각이 현재보다 이전.
+     * 시각이 지나도 상태는 바뀌지 않고 화면이 이 값으로 표시한다. 판정은 여기 한 곳이다(CONVENTIONS 4장).
+     *
+     * @param now 호출하는 쪽이 {@code Clock}에서 꺼내 넘긴다(Entity는 시각을 직접 읽지 않는다)
+     */
+    public boolean needsAction(LocalDateTime now) {
+        return status == ReservationStatus.RESERVED && reservedAt.isBefore(now);
+    }
+
     public Long getId() {
         return id;
     }

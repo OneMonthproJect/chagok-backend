@@ -1,5 +1,6 @@
 package com.wanted.chagok.domain.cycle.api;
 
+import com.wanted.chagok.domain.cycle.service.DefaultItemCycleCalculator;
 import java.time.LocalDate;
 import java.util.List;
 
@@ -9,8 +10,20 @@ import java.util.List;
  *
  * <p>구현은 {@code domain.cycle} 안쪽의 plain Java 클래스이며 계산은 값만 받아 값을 돌려준다(DB·Spring 없음).
  * 현재 시각을 직접 읽지 않으므로 {@code today}는 호출하는 쪽이 {@code Clock}에서 꺼내 넘긴다.
+ *
+ * <p>cycle은 Spring Bean을 만들 수 없으므로(ArchitectureTest {@code cycle은_순수_계산이다}) 호출하는 쪽은
+ * {@link #standard()}로 인스턴스를 얻는다. 구현 클래스를 직접 import하지 않는다 (CONVENTIONS 1장 1번).
+ * 호출하는 쪽이 Bean이 필요하면 자기 설정에서 {@code standard()}를 {@code @Bean}으로 감싼다.
  */
 public interface ItemCycleCalculator {
+
+    /**
+     * 표준 계산기를 돌려준다. 상태가 없는 순수 계산이라 한 번 만든 인스턴스를 여러 곳에서 공유해도 된다.
+     * 구현을 얻는 통로일 뿐 계산 규칙은 담지 않는다.
+     */
+    static ItemCycleCalculator standard() {
+        return new DefaultItemCycleCalculator();
+    }
 
     /**
      * @param rule         그 항목의 주기 (개월·km)

@@ -123,11 +123,24 @@ class EndpointGuardTest {
         return mvc.perform(request);
     }
 
+    /**
+     * 보안 필터를 지나 Controller의 입력 검증에서 막힌 요청: 400 {@code INVALID_INPUT}이고 어느 입력이 틀렸는지
+     * {@code fieldErrors}가 채워진다. 보안 오류용 {@link #expectError}는 {@code fieldErrors}가 비어 있어야 하므로 쓰지 않는다.
+     */
+    private static void expectValidationError(ResultActions result) throws Exception {
+        result.andExpect(status().isBadRequest())
+            .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
+            .andExpect(jsonPath("$.success").value(false))
+            .andExpect(jsonPath("$.data").isEmpty())
+            .andExpect(jsonPath("$.error.code").value("INVALID_INPUT"))
+            .andExpect(jsonPath("$.error.fieldErrors").isNotEmpty());
+    }
+
     @Test
     @DisplayName("C01 로그인 01·02는 토큰 없이 부를 수 있다: 보안이 막지 않고 Controller까지 가서 빈 본문은 400, 없는 계정은 401 LOGIN_FAILED")
     void c01_loginPathsArePublic() throws Exception {
-        expectError(postJson("/api/auth/login", "{}", null), 400, "INVALID_INPUT");
-        expectError(postJson("/api/admin/auth/login", "{}", null), 400, "INVALID_INPUT");
+        expectValidationError(postJson("/api/auth/login", "{}", null));
+        expectValidationError(postJson("/api/admin/auth/login", "{}", null));
         expectError(postJson("/api/auth/login", "{\"loginId\":\"no_such_login_id\",\"password\":\"x\"}", null), 401, "LOGIN_FAILED");
         expectError(postJson("/api/admin/auth/login", "{\"loginId\":\"no_such_login_id\",\"password\":\"x\"}", null), 401, "LOGIN_FAILED");
     }
@@ -136,9 +149,9 @@ class EndpointGuardTest {
     @DisplayName("로그인 요청에 만료·위조 토큰이 붙어 와도 로그인은 막히지 않는다 (401 AUTH_REQUIRED가 아니라 업무 응답)")
     void staleTokenOnLoginIsIgnored() throws Exception {
         String expired = "Bearer " + TestJwts.sign(secret, TestJwts.staff(1, 1, "OWNER", Instant.now().minusSeconds(5)));
-        expectError(postJson("/api/auth/login", "{}", expired), 400, "INVALID_INPUT");
-        expectError(postJson("/api/admin/auth/login", "{}", expired), 400, "INVALID_INPUT");
-        expectError(postJson("/api/auth/login", "{}", "Bearer not.a.jwt"), 400, "INVALID_INPUT");
+        expectValidationError(postJson("/api/auth/login", "{}", expired));
+        expectValidationError(postJson("/api/admin/auth/login", "{}", expired));
+        expectValidationError(postJson("/api/auth/login", "{}", "Bearer not.a.jwt"));
     }
 
     @Test

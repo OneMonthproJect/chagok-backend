@@ -1,7 +1,16 @@
 package com.wanted.chagok.domain.customer.api;
 
-// [뼈대] 담당: 이영주(softy20) · 이슈: #21
-// 역할: 차량 참조 record
-// 선행: #20 머지 순서
-// 이 파일은 주석만 있는 자리표시자다. 담당자가 구현할 때 이 주석을 지우고 클래스로 바꾼다.
-// 어느 이슈의 파일인지(경계)는 chagok-docs/docs/etc/STARTER/08_구현_파일_소유_충돌방지.md 4장을 따른다.
+/**
+ * 우리 정비소 차량 한 대의 참조 (Entity가 아니라 값). 다른 도메인은 이 값으로만 차량을 안다 (CONVENTIONS 3장).
+ *
+ * <p>{@code modelYear}·{@code latestMileage}는 비어 있을 수 있다 (07 3.5, D-58: 정비 시작 때 필수).
+ */
+public record VehicleRef(
+    long vehicleId,
+    long customerId,
+    String plateNumber,
+    String model,
+    Integer modelYear,
+    Integer latestMileage
+) {
+}

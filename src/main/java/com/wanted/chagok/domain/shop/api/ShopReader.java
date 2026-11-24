@@ -1,7 +1,13 @@
 package com.wanted.chagok.domain.shop.api;
 
-// [뼈대] 담당: 김동윤(dyk816) · 이슈: #20
-// 역할: 정비소 조회 계약 (account가 shop.api로 정비소명 조회)
-// 선행: #11 완료
-// 이 파일은 주석만 있는 자리표시자다. 담당자가 구현할 때 이 주석을 지우고 클래스로 바꾼다.
-// 어느 이슈의 파일인지(경계)는 chagok-docs/docs/etc/STARTER/08_구현_파일_소유_충돌방지.md 4장을 따른다.
+import java.util.Optional;
+
+/**
+ * 다른 도메인이 정비소를 읽는 유일한 통로 (CONVENTIONS 1장 1번). {@code account}가 로그인·내 계정 응답의 정비소명을 얻는 데 쓴다
+ * (CONVENTIONS 3장: account → shop.api).
+ */
+public interface ShopReader {
+
+    /** 정비소가 없으면 빈 값. 정비소 소속 확인(격리)이 아니라 이미 확정된 {@code shopId}의 표시값 조회다. */
+    Optional<ShopRef> findById(long shopId);
+}

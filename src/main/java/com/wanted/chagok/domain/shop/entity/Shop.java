@@ -1,7 +1,35 @@
 package com.wanted.chagok.domain.shop.entity;
 
-// [뼈대] 담당: 김동윤(dyk816) · 이슈: #20
-// 역할: shop 테이블
-// 선행: #4 완료
-// 이 파일은 주석만 있는 자리표시자다. 담당자가 구현할 때 이 주석을 지우고 클래스로 바꾼다.
-// 어느 이슈의 파일인지(경계)는 chagok-docs/docs/etc/STARTER/08_구현_파일_소유_충돌방지.md 4장을 따른다.
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.GenerationType;
+import jakarta.persistence.Id;
+import jakarta.persistence.Table;
+
+/**
+ * shop 표 (07 3.2, V1). 지금은 읽기에 필요한 칼럼만 매핑한다. 개설·정지(P1)에서 칼럼과 상태 전이 메서드를 더한다.
+ * setter는 두지 않는다 (CONVENTIONS 5장).
+ */
+@Entity
+@Table(name = "shop")
+public class Shop {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    @Column(name = "name", nullable = false, length = 50)
+    private String name;
+
+    protected Shop() {
+    }
+
+    public Long getId() {
+        return id;
+    }
+
+    public String getName() {
+        return name;
+    }
+}

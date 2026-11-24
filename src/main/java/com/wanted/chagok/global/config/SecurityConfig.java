@@ -3,6 +3,7 @@ package com.wanted.chagok.global.config;
 import com.wanted.chagok.global.auth.JwtVerification;
 import com.wanted.chagok.global.auth.SecurityErrorResponder;
 import java.time.Clock;
+import java.util.Arrays;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -10,7 +11,12 @@ import org.springframework.http.HttpMethod;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
+import org.springframework.security.oauth2.server.resource.web.BearerTokenResolver;
+import org.springframework.security.oauth2.server.resource.web.DefaultBearerTokenResolver;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher;
+import org.springframework.security.web.util.matcher.OrRequestMatcher;
+import org.springframework.security.web.util.matcher.RequestMatcher;
 import tools.jackson.databind.json.JsonMapper;
 
 /**
@@ -18,16 +24,31 @@ import tools.jackson.databind.json.JsonMapper;
  *
  * <ol>
  *   <li>{@code GET /actuator/health} — 공개</li>
+ *   <li>{@code POST /api/auth/login}(01)·{@code POST /api/admin/auth/login}(02) — 공개. 이 두 경로·POST만이고,
+ *       {@code /api/admin/**}보다 먼저 둔다(순서가 바뀌면 관리자 로그인이 403이 된다)</li>
  *   <li>{@code /api/admin/**} — 서비스 관리자(ADMIN)만. {@code /api/**}보다 먼저 둔다(순서가 바뀌면 관리자 API가 정비소 계정에 열린다)</li>
  *   <li>{@code /api/**} — 사장·정비사(OWNER·MECHANIC). 서비스 관리자 토큰은 403 (08 X9)</li>
  *   <li>그 밖 — 모두 거부. <b>새 API 경로는 여기 등록하지 않으면 닫혀 있다</b></li>
  * </ol>
  *
- * <p>로그인 API(01 {@code /api/auth/login}, 02 {@code /api/admin/auth/login})의 공개 규칙과 P1 사장 전용 경로는
- * 그 API가 생기는 이슈(F-AUTH-01, P1)에서 더한다. 인증 실패 401·권한 부족 403의 본문은 {@link SecurityErrorResponder}.
+ * <p>로그인 API는 토큰이 필요 없으므로, 로그인 요청에 붙어 온 {@code Authorization} 헤더는 읽지 않는다. 읽으면 화면이 남겨 둔
+ * 만료된 토큰 때문에 로그인 자체가 401로 막힌다. P1 사장 전용 경로는 그 API가 생기는 이슈(P1)에서 더한다.
+ * 인증 실패 401·권한 부족 403의 본문은 {@link SecurityErrorResponder}.
  */
 @Configuration
 public class SecurityConfig {
+
+    /** 토큰 없이 부를 수 있는 로그인 API (08 01·02). 이 목록과 메서드(POST)만 공개한다. */
+    private static final String[] LOGIN_PATHS = {"/api/auth/login", "/api/admin/auth/login"};
+
+    /** 로그인 요청의 {@code Authorization} 헤더는 무시하고, 그 밖의 요청은 기본 방식({@code Bearer})으로 읽는다. */
+    private static BearerTokenResolver ignoreTokenOnLogin() {
+        DefaultBearerTokenResolver defaultResolver = new DefaultBearerTokenResolver();
+        RequestMatcher loginRequest = new OrRequestMatcher(Arrays.stream(LOGIN_PATHS)
+            .map(path -> (RequestMatcher) PathPatternRequestMatcher.withDefaults().matcher(HttpMethod.POST, path))
+            .toList());
+        return request -> loginRequest.matches(request) ? null : defaultResolver.resolve(request);
+    }
 
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http, JwtDecoder jwtDecoder,
@@ -40,10 +61,12 @@ public class SecurityConfig {
             .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
             .authorizeHttpRequests(auth -> auth
                 .requestMatchers(HttpMethod.GET, "/actuator/health").permitAll()
+                .requestMatchers(HttpMethod.POST, LOGIN_PATHS).permitAll()
                 .requestMatchers("/api/admin/**").hasRole("ADMIN")
                 .requestMatchers("/api/**").hasAnyRole("OWNER", "MECHANIC")
                 .anyRequest().denyAll())
             .oauth2ResourceServer(oauth -> oauth
+                .bearerTokenResolver(ignoreTokenOnLogin())
                 .jwt(jwt -> jwt
                     .decoder(jwtDecoder)
                     .jwtAuthenticationConverter(JwtVerification.authenticationConverter()))

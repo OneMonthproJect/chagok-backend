@@ -1,7 +1,48 @@
 package com.wanted.chagok.domain.account.entity;
 
-// [뼈대] 담당: 김동윤(dyk816) · 이슈: #20
-// 역할: platform_admin 테이블
-// 선행: #4 완료
-// 이 파일은 주석만 있는 자리표시자다. 담당자가 구현할 때 이 주석을 지우고 클래스로 바꾼다.
-// 어느 이슈의 파일인지(경계)는 chagok-docs/docs/etc/STARTER/08_구현_파일_소유_충돌방지.md 4장을 따른다.
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.GenerationType;
+import jakarta.persistence.Id;
+import jakarta.persistence.Table;
+
+/**
+ * platform_admin 표 — 서비스 관리자 계정 (07 3.1, V1). 정비소({@code shop_id})가 없다. setter는 두지 않는다 (CONVENTIONS 5장).
+ */
+@Entity
+@Table(name = "platform_admin")
+public class PlatformAdmin {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    @Column(name = "login_id", nullable = false, length = 50)
+    private String loginId;
+
+    @Column(name = "password_hash", nullable = false, length = 100)
+    private String passwordHash;
+
+    @Column(name = "name", nullable = false, length = 50)
+    private String name;
+
+    protected PlatformAdmin() {
+    }
+
+    public Long getId() {
+        return id;
+    }
+
+    public String getLoginId() {
+        return loginId;
+    }
+
+    public String getPasswordHash() {
+        return passwordHash;
+    }
+
+    public String getName() {
+        return name;
+    }
+}

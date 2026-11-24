@@ -115,6 +115,47 @@ class EndpointGuardTest {
             .andExpect(jsonPath("$.status").value("UP"));
     }
 
+    private ResultActions postJson(String path, String json, String authorization) throws Exception {
+        var request = post(path).contentType(MediaType.APPLICATION_JSON).content(json);
+        if (authorization != null) {
+            request = request.header("Authorization", authorization);
+        }
+        return mvc.perform(request);
+    }
+
+    @Test
+    @DisplayName("C01 로그인 01·02는 토큰 없이 부를 수 있다: 보안이 막지 않고 Controller까지 가서 빈 본문은 400, 없는 계정은 401 LOGIN_FAILED")
+    void c01_loginPathsArePublic() throws Exception {
+        expectError(postJson("/api/auth/login", "{}", null), 400, "INVALID_INPUT");
+        expectError(postJson("/api/admin/auth/login", "{}", null), 400, "INVALID_INPUT");
+        expectError(postJson("/api/auth/login", "{\"loginId\":\"no_such_login_id\",\"password\":\"x\"}", null), 401, "LOGIN_FAILED");
+        expectError(postJson("/api/admin/auth/login", "{\"loginId\":\"no_such_login_id\",\"password\":\"x\"}", null), 401, "LOGIN_FAILED");
+    }
+
+    @Test
+    @DisplayName("로그인 요청에 만료·위조 토큰이 붙어 와도 로그인은 막히지 않는다 (401 AUTH_REQUIRED가 아니라 업무 응답)")
+    void staleTokenOnLoginIsIgnored() throws Exception {
+        String expired = "Bearer " + TestJwts.sign(secret, TestJwts.staff(1, 1, "OWNER", Instant.now().minusSeconds(5)));
+        expectError(postJson("/api/auth/login", "{}", expired), 400, "INVALID_INPUT");
+        expectError(postJson("/api/admin/auth/login", "{}", expired), 400, "INVALID_INPUT");
+        expectError(postJson("/api/auth/login", "{}", "Bearer not.a.jwt"), 400, "INVALID_INPUT");
+    }
+
+    @Test
+    @DisplayName("공개는 로그인 두 경로·POST뿐: 다른 메서드·다른 경로는 토큰이 필요하다 (401 AUTH_REQUIRED)")
+    void onlyTheTwoLoginPostsArePublic() throws Exception {
+        expectError(mvc.perform(get("/api/auth/login")), 401, "AUTH_REQUIRED");
+        expectError(postJson("/api/auth/login/extra", "{}", null), 401, "AUTH_REQUIRED");
+        expectError(postJson("/api/admin/auth/other", "{}", null), 401, "AUTH_REQUIRED");
+        expectError(mvc.perform(get("/api/me")), 401, "AUTH_REQUIRED");
+    }
+
+    @Test
+    @DisplayName("X9 서비스 관리자 토큰으로 03 /api/me → 403 FORBIDDEN")
+    void x9_adminCannotCallMe() throws Exception {
+        expectError(mvc.perform(get("/api/me").header("Authorization", adminToken())), 403, "FORBIDDEN");
+    }
+
     @Test
     @DisplayName("올바른 역할은 보안을 통과한다 (Controller가 아직 없어 404 NOT_FOUND)")
     void rightRolePassesSecurity() throws Exception {

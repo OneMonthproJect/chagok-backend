@@ -78,7 +78,12 @@ jobs:
           cache: gradle
       - run: chmod +x gradlew
       - name: DB 테스트 (빈 MySQL에 Flyway 적용 + 앱 기동)
-        run: ./gradlew dbTest --no-daemon
+        # JWT 서명 키는 실행할 때마다 새로 만든다(저장소·Secrets에 키를 두지 않음, 값을 출력하지 않음). B-1 chagok-backend#11
+        run: |
+          JWT_SECRET="$(openssl rand -base64 48)"
+          echo "::add-mask::$JWT_SECRET"
+          export JWT_SECRET
+          ./gradlew dbTest --no-daemon
         env:
           # CI 전용 일회용 DB 값 (실제 비밀값 아님). application.yaml의 환경변수 이름과 같다
           DB_URL: jdbc:mysql://localhost:3306/chagok?characterEncoding=UTF-8&serverTimezone=Asia/Seoul

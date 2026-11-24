@@ -40,3 +40,13 @@ management:
 
 server:
   port: 8080
+
+# JWT 서명 키(HS256, 32바이트 이상)는 환경변수로만 받는다. 기본값이 없으므로 빠지면 기동에 실패한다 (README 「환경변수」)
+chagok:
+  jwt:
+    secret: ${JWT_SECRET}
+
+# 모든 로그 줄에 요청 ID (RequestIdFilter, CONVENTIONS 6장)
+logging:
+  pattern:
+    level: "%5p [%X{requestId:-}]"

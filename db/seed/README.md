@@ -4,7 +4,7 @@
 
 | 파일 | 내용 |
 |---|---|
-| `demo_seed.sql` | 시연 데이터. **ERD(07) 확정과 `V1__init.sql` 작성 뒤 DB 담당자가 채운다** (지금은 비어 있음) |
+| `demo_seed.sql` | 시연 데이터. 07 7장 시드 구성대로 채움 (chagok-backend#9, V1 기준). 07이 바뀌면 DB 담당자가 같이 고친다. 적용 확인은 CI db-test의 `DemoSeedTest`(트랜잭션 롤백) |
 | `run-demo-seed.sh` | 안전 검사 후 `demo_seed.sql`을 실행하는 스크립트 |
 
 ## 규칙

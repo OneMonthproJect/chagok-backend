@@ -18,7 +18,7 @@
 - **DB 구조는 Flyway 버전 파일이 기준**이다: `src/main/resources/db/migration/V{번호}__{설명}.sql`. `develop`에 머지된 버전 파일은 고치지 않고 새 번호를 더한다. Entity는 마이그레이션에 맞추고 `ddl-auto: validate`.
 - 시연 시드는 레포 루트 `db/seed/demo_seed.sql`에만 둔다(classpath 밖, `chagok-seed-data` 스킬). 시연 전용 DB에 `db/seed/run-demo-seed.sh`로만 넣는다. DB를 직접 실행·변경하지 않는다.
 - 명세가 바뀌는 변경(마이그레이션, Controller·DTO, ErrorCode)은 `chagok-docs`에 문서 PR이 먼저 또는 함께 있어야 한다. 코드 PR 본문 「문서 PR」 칸에 `OneMonthproJect/chagok-docs#번호`를 적는다. 문서는 이 레포에서 고치지 않는다.
-- 작업 절차: `ai-rules.md` 「작업 절차」(분석 → 계획 보고 → 승인 → 구현 → 검증 → 결과 보고). 계획 승인 전에 코드를 쓰지 않는다.
-- 점검: `./gradlew build`(DB 없는 테스트, ArchitectureTest 포함), DB가 있으면 `./gradlew dbTest`. 못 돌렸으면 "미검증(이유)"으로 보고하고 완료라고 하지 않는다. SKIPPED는 통과가 아니다.
+- 절차·검증 범위는 `ai-rules.md` 「작업 등급」(L0~L3). 이 레포의 L3 대상: `db/migration`·`db/seed`, `global/auth`·`SecurityConfig`, `getOwned`·Repository의 `shopId` 조건, ErrorCode, `.github/`.
+- 점검 명령: `./gradlew build`(DB 없는 테스트, ArchitectureTest 포함), `./gradlew dbTest`(빈 테스트 전용 DB에서 — README 「`dbTest`는 테스트 전용 DB로」).
 - 테스트를 통과시키려고 ArchitectureTest·SecurityConfig·검증을 약하게 바꾸지 않는다(CONVENTIONS 12장).
 - 프론트 호출을 확인해야 하면 `../chagok-frontend`를 읽기만 한다.

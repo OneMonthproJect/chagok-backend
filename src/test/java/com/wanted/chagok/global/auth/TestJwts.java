@@ -13,7 +13,7 @@ import java.util.Base64;
 import java.util.Date;
 
 /**
- * 테스트 전용 토큰 만들기. 운영 코드에는 토큰 발급기가 없다(발급은 로그인 API, F-AUTH-01).
+ * 테스트 전용 토큰 만들기. 운영 코드의 발급기({@link JwtIssuer})와 따로, 규약대로 직접 서명해 만료·위조·규약 위반 토큰을 시험한다.
  * 클레임 이름은 {@link TokenClaims} 규약 그대로.
  */
 public final class TestJwts {

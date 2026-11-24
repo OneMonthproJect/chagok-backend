@@ -1,7 +1,14 @@
 package com.wanted.chagok.domain.account.dto;
 
-// [뼈대] 담당: 김동윤(dyk816) · 이슈: #20
-// 역할: API 01 응답 (토큰, 12시간)
-// 선행: #11 완료
-// 이 파일은 주석만 있는 자리표시자다. 담당자가 구현할 때 이 주석을 지우고 클래스로 바꾼다.
-// 어느 이슈의 파일인지(경계)는 chagok-docs/docs/etc/STARTER/08_구현_파일_소유_충돌방지.md 4장을 따른다.
+/**
+ * API 01 응답 (08 01). {@code expiresIn}은 초(43200 = 12시간). {@code toString}에 토큰을 싣지 않는다.
+ */
+public record LoginResponse(String accessToken, String tokenType, long expiresIn, MeResponse staff) {
+
+    public static final String BEARER = "Bearer";
+
+    @Override
+    public String toString() {
+        return "LoginResponse[accessToken=***, tokenType=" + tokenType + ", expiresIn=" + expiresIn + ", staff=" + staff + "]";
+    }
+}

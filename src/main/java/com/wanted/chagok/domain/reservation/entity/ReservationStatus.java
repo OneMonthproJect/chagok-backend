@@ -1,7 +1,15 @@
 package com.wanted.chagok.domain.reservation.entity;
 
-// [뼈대] 담당: 김예린(paaaraaaeaaa) · 이슈: #26
-// 역할: enum: 예약 상태 (P0-핵심 값만)
-// 선행: #4 완료
-// 이 파일은 주석만 있는 자리표시자다. 담당자가 구현할 때 이 주석을 지우고 클래스로 바꾼다.
-// 어느 이슈의 파일인지(경계)는 chagok-docs/docs/etc/STARTER/08_구현_파일_소유_충돌방지.md 4장을 따른다.
+/**
+ * 예약 상태 (08 0.4). P0-핵심 값만 둔다 — V1의 {@code ck_reservation_status} CHECK가 이 셋만 허용한다 (07 6.3 V1-8).
+ *
+ * <p>{@code IN_PROGRESS}(진행중)·{@code NO_SHOW}(노쇼)는 P0-나머지에서 V2 마이그레이션(backend#31)과 함께 더한다.
+ */
+public enum ReservationStatus {
+    /** 예약. 시각이 지났어도 상태는 그대로이고 화면이 "처리 필요"로 표시한다 (D-23). */
+    RESERVED,
+    /** 방문 완료. */
+    COMPLETED,
+    /** 취소. */
+    CANCELED
+}

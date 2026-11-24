@@ -1,7 +1,68 @@
 package com.wanted.chagok.domain.reservation.entity;
 
-// [뼈대] 담당: 김예린(paaaraaaeaaa) · 이슈: #26
-// 역할: reservation_item 테이블
-// 선행: #4 완료
-// 이 파일은 주석만 있는 자리표시자다. 담당자가 구현할 때 이 주석을 지우고 클래스로 바꾼다.
-// 어느 이슈의 파일인지(경계)는 chagok-docs/docs/etc/STARTER/08_구현_파일_소유_충돌방지.md 4장을 따른다.
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.EntityListeners;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.GenerationType;
+import jakarta.persistence.Id;
+import jakarta.persistence.Table;
+import java.time.LocalDateTime;
+import org.springframework.data.annotation.CreatedDate;
+import org.springframework.data.jpa.domain.support.AuditingEntityListener;
+
+/**
+ * {@code reservation_item} 표 — 예약 목적으로 고른 정비 항목 (07 3.9, D-38). {@code updated_at}이 없는 표라
+ * {@code created_at}만 매핑한다(07 6.2). 예약·항목은 같은 도메인 연관이 아니라 ID로만 가진다.
+ */
+@Entity
+@Table(name = "reservation_item")
+@EntityListeners(AuditingEntityListener.class)
+public class ReservationItem {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    @Column(name = "shop_id", nullable = false, updatable = false)
+    private Long shopId;
+
+    @Column(name = "reservation_id", nullable = false, updatable = false)
+    private Long reservationId;
+
+    @Column(name = "service_item_id", nullable = false, updatable = false)
+    private Long serviceItemId;
+
+    @CreatedDate
+    @Column(name = "created_at", nullable = false, updatable = false)
+    private LocalDateTime createdAt;
+
+    protected ReservationItem() {
+    }
+
+    private ReservationItem(long shopId, long reservationId, long serviceItemId) {
+        this.shopId = shopId;
+        this.reservationId = reservationId;
+        this.serviceItemId = serviceItemId;
+    }
+
+    public static ReservationItem of(long shopId, long reservationId, long serviceItemId) {
+        return new ReservationItem(shopId, reservationId, serviceItemId);
+    }
+
+    public Long getId() {
+        return id;
+    }
+
+    public Long getShopId() {
+        return shopId;
+    }
+
+    public Long getReservationId() {
+        return reservationId;
+    }
+
+    public Long getServiceItemId() {
+        return serviceItemId;
+    }
+}

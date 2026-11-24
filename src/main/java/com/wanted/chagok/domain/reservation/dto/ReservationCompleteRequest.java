@@ -1,7 +1,15 @@
 package com.wanted.chagok.domain.reservation.dto;
 
-// [뼈대] 담당: 김예린(paaaraaaeaaa) · 이슈: #27
-// 역할: API 18 요청
-// 선행: #26
-// 이 파일은 주석만 있는 자리표시자다. 담당자가 구현할 때 이 주석을 지우고 클래스로 바꾼다.
-// 어느 이슈의 파일인지(경계)는 chagok-docs/docs/etc/STARTER/08_구현_파일_소유_충돌방지.md 4장을 따른다.
+import jakarta.validation.constraints.NotNull;
+
+/**
+ * API 18 방문 완료 요청 (08 18번). 화면이 읽은 예약의 {@code version}을 그대로 보낸다 (D-42, R13).
+ * 빠지면 400 {@code INVALID_INPUT}이고 예약은 바뀌지 않는다. 숫자가 아닌 값은 JSON 읽기 단계에서 같은 400이 된다.
+ * 서버 값과 다른 숫자(음수 포함)는 400이 아니라 409 {@code CONCURRENT_MODIFICATION}이다 — 08은 그렇게만 정한다.
+ *
+ * @param version 04·15·17 응답의 {@code version}. {@code Integer}인 것은 누락을 null로 구별하려는 것이다
+ */
+public record ReservationCompleteRequest(
+        @NotNull(message = "필수 입력입니다.")
+        Integer version) {
+}

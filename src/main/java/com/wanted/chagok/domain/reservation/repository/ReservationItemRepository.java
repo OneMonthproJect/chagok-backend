@@ -1,7 +1,11 @@
 package com.wanted.chagok.domain.reservation.repository;
 
-// [뼈대] 담당: 김예린(paaaraaaeaaa) · 이슈: #26
-// 역할: ReservationItem 조회
-// 선행: ReservationItem
-// 이 파일은 주석만 있는 자리표시자다. 담당자가 구현할 때 이 주석을 지우고 클래스로 바꾼다.
-// 어느 이슈의 파일인지(경계)는 chagok-docs/docs/etc/STARTER/08_구현_파일_소유_충돌방지.md 4장을 따른다.
+import com.wanted.chagok.domain.reservation.entity.ReservationItem;
+import org.springframework.data.jpa.repository.JpaRepository;
+
+/**
+ * 예약 목적 항목. 지금은 기본 메서드만 둔다. 조회·교체 메서드는 쓰는 이슈(API 15·16 등록, API 19 변경)에서 더한다
+ * (조회에는 {@code shopId} 조건을 함께 넣는다).
+ */
+public interface ReservationItemRepository extends JpaRepository<ReservationItem, Long> {
+}

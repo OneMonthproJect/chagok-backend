@@ -81,9 +81,9 @@ class ArchitectureTest {
             .check(classes);
     }
 
-    // cycle은 api 패키지 없이 순수 계산 모듈이라 이 규칙에서 빼고 cycle은_순수_계산이다()로 검사한다
+    // cycle도 api(값 타입·ItemCycleCalculator)로만 부른다. cycle이 다른 것을 import하지 않는 쪽은 cycle은_순수_계산이다()가 따로 검사한다
     @ParameterizedTest(name = "{0} 도메인은 {0}.api로만 접근한다")
-    @ValueSource(strings = {"shop", "account", "customer", "item", "maintenance", "reservation"})
+    @ValueSource(strings = {"shop", "account", "customer", "item", "maintenance", "reservation", "cycle"})
     void 다른_도메인은_api로만(String domain) {
         String base = "..domain." + domain;
         requireClassesIn(base + "..");

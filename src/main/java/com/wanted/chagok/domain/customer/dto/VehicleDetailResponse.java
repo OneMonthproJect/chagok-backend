@@ -1,7 +1,27 @@
 package com.wanted.chagok.domain.customer.dto;
 
-// [뼈대] 담당: 이영주(softy20) · 이슈: #24
-// 역할: API 09 응답
-// 선행: #21, #19
-// 이 파일은 주석만 있는 자리표시자다. 담당자가 구현할 때 이 주석을 지우고 클래스로 바꾼다.
-// 어느 이슈의 파일인지(경계)는 chagok-docs/docs/etc/STARTER/08_구현_파일_소유_충돌방지.md 4장을 따른다.
+import com.wanted.chagok.domain.customer.entity.Customer;
+import com.wanted.chagok.domain.customer.entity.Vehicle;
+
+/**
+ * API 09 응답 (08 09). {@code model}은 값이 있고(D-58), {@code modelYear}·{@code latestMileage}는 비어 있을 수 있다.
+ * {@code customer.phone}은 전체 번호다(D-40: 마스킹은 목록만, P0-나머지).
+ */
+public record VehicleDetailResponse(
+    long vehicleId,
+    String plateNumber,
+    String model,
+    Integer modelYear,
+    Integer latestMileage,
+    CustomerInfo customer
+) {
+
+    public record CustomerInfo(long customerId, String name, String phone, boolean consent) {
+    }
+
+    public static VehicleDetailResponse of(Vehicle vehicle, Customer customer) {
+        return new VehicleDetailResponse(vehicle.getId(), vehicle.getPlateNumber(), vehicle.getModel(),
+            vehicle.getModelYear(), vehicle.getLatestMileage(),
+            new CustomerInfo(customer.getId(), customer.getName(), customer.getPhone(), customer.isConsent()));
+    }
+}

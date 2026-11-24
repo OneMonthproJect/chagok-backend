@@ -1,7 +1,19 @@
 package com.wanted.chagok.domain.customer.dto;
 
-// [뼈대] 담당: 이영주(softy20) · 이슈: #21
-// 역할: API 05 응답
-// 선행: #20 머지 순서
-// 이 파일은 주석만 있는 자리표시자다. 담당자가 구현할 때 이 주석을 지우고 클래스로 바꾼다.
-// 어느 이슈의 파일인지(경계)는 chagok-docs/docs/etc/STARTER/08_구현_파일_소유_충돌방지.md 4장을 따른다.
+import java.util.List;
+
+/** API 05 응답 (08 05). phone은 P0-핵심에서 전체 번호(마스킹은 F-CUS-06 이슈, P0-나머지). */
+public record CustomerSearchResponse(
+    List<Item> items,
+    int page,
+    int size,
+    long totalElements,
+    int totalPages
+) {
+
+    public record Item(long customerId, String name, String phone, boolean consent, List<VehicleItem> vehicles) {
+    }
+
+    public record VehicleItem(long vehicleId, String plateNumber) {
+    }
+}

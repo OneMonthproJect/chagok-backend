@@ -1,7 +1,100 @@
 package com.wanted.chagok.domain.customer.entity;
 
-// [뼈대] 담당: 이영주(softy20) · 이슈: #21
-// 역할: vehicle 테이블
-// 선행: #4 완료
-// 이 파일은 주석만 있는 자리표시자다. 담당자가 구현할 때 이 주석을 지우고 클래스로 바꾼다.
-// 어느 이슈의 파일인지(경계)는 chagok-docs/docs/etc/STARTER/08_구현_파일_소유_충돌방지.md 4장을 따른다.
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.EntityListeners;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.GenerationType;
+import jakarta.persistence.Id;
+import jakarta.persistence.Table;
+import java.time.LocalDateTime;
+import org.springframework.data.annotation.CreatedDate;
+import org.springframework.data.annotation.LastModifiedDate;
+import org.springframework.data.jpa.domain.support.AuditingEntityListener;
+
+/**
+ * vehicle 테이블 (07 3.5, V1). 같은 정비소의 고객에만 붙는다(DB 복합 FK). 차량번호 중복은 막지 않는다.
+ * 고객은 {@code customerId}로만 가리킨다(복합 FK (shop_id, customer_id)를 JPA 연관으로 풀지 않는다).
+ */
+@Entity
+@Table(name = "vehicle")
+@EntityListeners(AuditingEntityListener.class)
+public class Vehicle {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    @Column(name = "shop_id", nullable = false, updatable = false)
+    private long shopId;
+
+    @Column(name = "customer_id", nullable = false, updatable = false)
+    private long customerId;
+
+    @Column(name = "plate_number", nullable = false, length = 20)
+    private String plateNumber;
+
+    @Column(length = 50)
+    private String model;
+
+    @Column(name = "model_year")
+    private Integer modelYear;
+
+    /** 07 3.5 {@code latest_mileage}. 06 요청에서는 {@code mileage}라고 부른다(08). */
+    @Column(name = "latest_mileage")
+    private Integer latestMileage;
+
+    @CreatedDate
+    @Column(name = "created_at", nullable = false, updatable = false)
+    private LocalDateTime createdAt;
+
+    @LastModifiedDate
+    @Column(name = "updated_at", nullable = false)
+    private LocalDateTime updatedAt;
+
+    protected Vehicle() {
+    }
+
+    private Vehicle(long shopId, long customerId, String plateNumber, String model, Integer modelYear,
+        Integer latestMileage) {
+        this.shopId = shopId;
+        this.customerId = customerId;
+        this.plateNumber = plateNumber;
+        this.model = model;
+        this.modelYear = modelYear;
+        this.latestMileage = latestMileage;
+    }
+
+    public static Vehicle register(long shopId, long customerId, String plateNumber, String model, Integer modelYear,
+        Integer latestMileage) {
+        return new Vehicle(shopId, customerId, plateNumber, model, modelYear, latestMileage);
+    }
+
+    public Long getId() {
+        return id;
+    }
+
+    public long getShopId() {
+        return shopId;
+    }
+
+    public long getCustomerId() {
+        return customerId;
+    }
+
+    public String getPlateNumber() {
+        return plateNumber;
+    }
+
+    public String getModel() {
+        return model;
+    }
+
+    public Integer getModelYear() {
+        return modelYear;
+    }
+
+    public Integer getLatestMileage() {
+        return latestMileage;
+    }
+}

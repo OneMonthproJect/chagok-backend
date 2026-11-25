@@ -4,6 +4,7 @@ import com.wanted.chagok.domain.customer.api.CustomerReader;
 import com.wanted.chagok.domain.customer.api.VehicleSummary;
 import com.wanted.chagok.domain.item.api.ItemReader;
 import com.wanted.chagok.domain.item.api.ItemRef;
+import com.wanted.chagok.domain.reservation.api.ReservationDetail;
 import com.wanted.chagok.domain.reservation.api.ReservationReader;
 import com.wanted.chagok.domain.reservation.api.ReservationRef;
 import com.wanted.chagok.domain.reservation.dto.ReservationCreateRequest;
@@ -80,6 +81,18 @@ public class ReservationService implements ReservationReader {
             active.putIfAbsent(r.getVehicleId(), new ReservationRef(r.getId(), r.getVehicleId(), r.getReservedAt()));
         }
         return active;
+    }
+
+    /** 예약 상세 패널(API 17)용 한 건 조회. 소속 확인은 {@link #getOwned} 한 곳, "처리 필요"는 Entity가 판정한다(D-23). */
+    @Override
+    @Transactional(readOnly = true)
+    public ReservationDetail getOwnedDetail(long shopId, long reservationId) {
+        Reservation r = getOwned(shopId, reservationId);
+        List<Long> itemIds = reservationItemRepository.findByShopIdAndReservationIdIn(shopId, List.of(r.getId())).stream()
+            .map(ReservationItem::getServiceItemId)
+            .toList();
+        return new ReservationDetail(r.getId(), r.getVehicleId(), r.getReservedAt(), r.getStatus().name(),
+            r.needsAction(LocalDateTime.now(clock)), r.getVersion(), itemIds, r.isPurposeOther(), r.getPurposeMemo());
     }
 
     /** 유효 예약 판정의 한 곳 (D-22): {@code RESERVED} + 예약 날짜 ≥ 오늘, 이른 순. 조회(14)·등록(16)·변경(19)이 같이 쓴다. */

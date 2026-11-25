@@ -5,6 +5,7 @@ import com.wanted.chagok.domain.cycle.api.CycleRecord;
 import com.wanted.chagok.domain.cycle.api.CycleRule;
 import com.wanted.chagok.domain.cycle.api.ItemCycleCalculator;
 import com.wanted.chagok.domain.cycle.api.ItemCycleResult;
+import com.wanted.chagok.domain.cycle.api.ItemStatus;
 import com.wanted.chagok.domain.item.api.ItemReader;
 import com.wanted.chagok.domain.item.api.ItemRef;
 import com.wanted.chagok.domain.maintenance.api.MaintenanceReader;
@@ -13,6 +14,8 @@ import com.wanted.chagok.global.error.BusinessException;
 import com.wanted.chagok.screen.visit.dto.ItemStatusResponse;
 import java.time.Clock;
 import java.time.LocalDate;
+import java.util.Collection;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -55,12 +58,42 @@ public class ItemStatusService {
         List<ItemRef> items = itemReader.findActiveItems(shopId);
         Map<Long, List<MaintenanceRecordRef>> byVehicle =
             maintenanceReader.findRecordsByVehicle(shopId, List.of(vehicleId));
-        Map<Long, List<CycleRecord>> recordsByItem = byVehicle.getOrDefault(vehicleId, List.<MaintenanceRecordRef>of())
-            .stream()
+        List<ItemStatusResponse.Item> result = statuses(items,
+            byVehicle.getOrDefault(vehicleId, List.<MaintenanceRecordRef>of()), today, mileage);
+        return new ItemStatusResponse(vehicleId, today, mileage, result);
+    }
+
+    /**
+     * 차량 여러 대의 도래({@code DUE})·임박({@code SOON}) 항목 수를 한 번에 센다 (API 07 고객 상세의 {@code dueCount}·{@code soonCount}).
+     * API 10을 주행거리 없이 부른 결과와 같은 기준이라 같은 판정({@link #statuses})을 쓴다. 항목과 정비 기록은 각각 한 번의 조회로 가져온다
+     * (차량마다 부르지 않음). 차량 소속 확인은 호출하는 쪽이 이미 했다고 본다(소속이 확인된 차량 id만 넘긴다).
+     * 같은 패키지의 {@code CustomerDetailService}만 쓰도록 package-private이다. 입력이 비어 있으면 아무것도 조회하지 않고 빈 Map. 기록이 없는 차량도 키가 있고 0·0이다(전부 미확인).
+     */
+    Map<Long, StatusCount> countStatuses(long shopId, Collection<Long> vehicleIds) {
+        if (vehicleIds == null || vehicleIds.isEmpty()) {
+            return Map.of();
+        }
+        LocalDate today = LocalDate.now(clock);
+        List<ItemRef> items = itemReader.findActiveItems(shopId);
+        Map<Long, List<MaintenanceRecordRef>> byVehicle = maintenanceReader.findRecordsByVehicle(shopId, vehicleIds);
+        Map<Long, StatusCount> result = new LinkedHashMap<>();
+        for (Long vehicleId : vehicleIds) {
+            List<ItemStatusResponse.Item> perItem = statuses(items,
+                byVehicle.getOrDefault(vehicleId, List.<MaintenanceRecordRef>of()), today, null);
+            result.put(vehicleId, new StatusCount(
+                (int) perItem.stream().filter(i -> i.status() == ItemStatus.DUE).count(),
+                (int) perItem.stream().filter(i -> i.status() == ItemStatus.SOON).count()));
+        }
+        return result;
+    }
+
+    /** 한 차량의 사용 항목별 상태. 날짜·km 비교는 {@link ItemCycleCalculator} 한 곳이고 API 10과 07이 이 메서드를 같이 쓴다. */
+    private List<ItemStatusResponse.Item> statuses(List<ItemRef> items, List<MaintenanceRecordRef> records,
+        LocalDate today, Integer mileage) {
+        Map<Long, List<CycleRecord>> recordsByItem = records.stream()
             .collect(Collectors.groupingBy(MaintenanceRecordRef::itemId,
                 Collectors.mapping(ItemStatusService::toCycleRecord, Collectors.toList())));
-
-        List<ItemStatusResponse.Item> result = items.stream()
+        return items.stream()
             .map(item -> {
                 ItemCycleResult r = calculator.calculate(new CycleRule(item.cycleMonths(), item.cycleKm()),
                     recordsByItem.getOrDefault(item.itemId(), List.of()), today, mileage);
@@ -68,7 +101,10 @@ public class ItemStatusService {
                     r.dueReason(), r.baseRecord(), r.nextDueDate(), r.nextDueMileage());
             })
             .toList();
-        return new ItemStatusResponse(vehicleId, today, mileage, result);
+    }
+
+    /** 한 차량의 도래·임박 항목 수 (API 07). */
+    record StatusCount(int dueCount, int soonCount) {
     }
 
     private static CycleRecord toCycleRecord(MaintenanceRecordRef r) {

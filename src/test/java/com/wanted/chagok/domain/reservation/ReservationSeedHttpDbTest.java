@@ -1,7 +1,6 @@
 package com.wanted.chagok.domain.reservation;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.junit.jupiter.api.Assumptions.assumeTrue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -36,8 +35,8 @@ import org.springframework.transaction.annotation.Transactional;
  * 앱 전체가 뜨므로 빈 MySQL이 필요하다({@code ./gradlew dbTest}, CI db-test). 시드는 {@code DemoSeedTest}와 같은 방식으로 테스트 트랜잭션 안에서
  * 실행하고 끝나면 롤백한다.
  *
- * <p>시드의 "오늘"은 MySQL 서버의 {@code CURDATE()}이고 앱의 "오늘"은 {@code Clock}(Asia/Seoul)이다. 두 날짜가 다른 시간대(예: UTC 서버에서
- * 한국 시간 자정~오전 9시)에는 "오늘 예약"의 뜻이 어긋나 결과가 달라지므로 그 구간에서는 <b>통과가 아니라 건너뜀</b>으로 남긴다.
+ * <p>시드의 "오늘"({@code @today})과 앱의 "오늘"({@code Clock})은 모두 서울 날짜다(07 7장, chagok-docs#110). MySQL이 UTC여도 어긋나지 않으므로
+ * 건너뛰지 않고, 두 날짜가 같은지 먼저 확인한다.
  *
  * <p>LIMIT: 한 트랜잭션 안이라 서로 다른 트랜잭션의 동시 요청(R8·R10 둘째 경우)은 확인하지 못한다.
  */
@@ -68,10 +67,10 @@ class ReservationSeedHttpDbTest {
         Connection connection = DataSourceUtils.getConnection(dataSource);
         ScriptUtils.executeSqlScript(connection, new EncodedResource(SEED, StandardCharsets.UTF_8));
 
-        LocalDate seedToday = LocalDate.parse(jdbc.queryForObject("SELECT DATE_FORMAT(CURDATE(), '%Y-%m-%d')", String.class));
+        // 시드의 오늘(@today)은 서울 날짜로 계산된다(07 7장, chagok-docs#110). MySQL 시간대와 관계없이 앱의 오늘과 같아야 한다
+        LocalDate seedToday = LocalDate.parse(jdbc.queryForObject("SELECT DATE_FORMAT(@today, '%Y-%m-%d')", String.class));
         today = LocalDate.now(ClockConfig.SEOUL);
-        assumeTrue(seedToday.equals(today),
-            "시드의 오늘(MySQL CURDATE " + seedToday + ")과 앱의 오늘(Asia/Seoul " + today + ")이 달라 이 테스트는 건너뜀 — 통과가 아님");
+        assertThat(seedToday).as("시드의 오늘(@today)과 앱의 오늘(Asia/Seoul)").isEqualTo(today);
 
         shopA = jdbc.queryForObject("SELECT id FROM shop WHERE name = '차곡카센터'", Long.class);
         shopB = jdbc.queryForObject("SELECT id FROM shop WHERE name = '바른카센터'", Long.class);

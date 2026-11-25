@@ -34,11 +34,13 @@ class DemoSeedFileTest {
     }
 
     @Test
-    @DisplayName("V1-11 정적: 날짜는 CURDATE() 기준 상대값만, 비밀번호는 BCrypt 해시만 (평문·고정 날짜 없음)")
+    @DisplayName("V1-11 정적: 날짜는 서울 날짜(오늘) 기준 상대값만, 비밀번호는 BCrypt 해시만 (평문·고정 날짜 없음)")
     void seedUsesRelativeDatesAndHashedPasswords() throws IOException {
         String sql = withoutComments(Files.readString(SEED, StandardCharsets.UTF_8));
 
-        assertThat(sql).contains("CURDATE()");
+        // 07 7장·chagok-docs#110: 오늘은 서울 날짜. MySQL 세션 시간대를 따르는 CURDATE()·NOW()는 쓰지 않는다
+        assertThat(sql).contains("SET @today = DATE(CONVERT_TZ(UTC_TIMESTAMP(), '+00:00', '+09:00'));");
+        assertThat(sql).doesNotContain("CURDATE()").doesNotContain("NOW()");
         assertThat(Pattern.compile("'\\d{4}-\\d{2}-\\d{2}").matcher(sql).find())
             .as("고정 날짜 리터럴이 없어야 한다 (07 7장: 오늘 기준 상대값)").isFalse();
         assertThat(sql).doesNotContain("'1234'");

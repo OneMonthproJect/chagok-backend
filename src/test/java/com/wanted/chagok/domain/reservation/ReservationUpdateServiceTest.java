@@ -128,9 +128,11 @@ class ReservationUpdateServiceTest {
     @DisplayName("예약 목적만 변경: 항목 검증 → 기존 목적 행 삭제 → 새 행 저장, 기타·메모 반영, 일시는 그대로")
     void changePurposeOnly() {
         Reservation r = existing();
-        when(repository.findByVehiclesAndStatusFrom(anyLong(), anyCollection(), any(), any())).thenReturn(List.of(r));
 
         service().update(SHOP, RES_ID, request(0, null, List.of(1L, 4L), true, "새 메모"));
+
+        // 일시를 보내지 않았으므로 같은 차량 유효 예약 검사는 하지 않는다
+        verify(repository, never()).findByVehiclesAndStatusFrom(anyLong(), anyCollection(), any(), any());
 
         assertThat(r.getReservedAt()).isEqualTo(LocalDateTime.of(2026, 11, 26, 10, 0));
         assertThat(r.isPurposeOther()).isTrue();
@@ -151,7 +153,6 @@ class ReservationUpdateServiceTest {
     @DisplayName("빈 항목 목록을 보내면 목적 행을 모두 지우고 새로 넣지 않는다 / 메모는 빈 문자열이면 비운다")
     void clearItemsAndMemo() {
         Reservation r = existing();
-        when(repository.findByVehiclesAndStatusFrom(anyLong(), anyCollection(), any(), any())).thenReturn(List.of(r));
 
         service().update(SHOP, RES_ID, request(0, null, List.of(), null, ""));
 
@@ -285,6 +286,58 @@ class ReservationUpdateServiceTest {
 
         service().update(SHOP, RES_ID, request(0, LocalDateTime.of(2026, 11, 29, 9, 30), null, null, null));
 
+        verify(repository).saveAndFlush(r);
+    }
+
+    private Reservation pastReserved() {
+        // 어제 이전 날짜의 RESERVED("처리 필요") — 유효 예약이 아니다(08 14·16: 날짜 ≥ 오늘)
+        Reservation r = reservation(RES_ID, LocalDateTime.of(2026, 11, 20, 10, 0), ReservationStatus.RESERVED, 0);
+        when(repository.findByIdAndShopId(RES_ID, SHOP)).thenReturn(Optional.of(r));
+        return r;
+    }
+
+    @Test
+    @DisplayName("메모만 바꿀 때는 같은 차량 유효 예약 검사를 하지 않는다 — 지난 예약의 메모가 다른 예약 때문에 409가 되지 않는다")
+    void memoOnlyChangeSkipsActiveCheck() {
+        Reservation r = pastReserved();
+
+        ReservationResponse response = service().update(SHOP, RES_ID, request(0, null, null, null, "정정 메모"));
+
+        verify(repository, never()).findByVehiclesAndStatusFrom(anyLong(), anyCollection(), any(), any());
+        verify(repository).saveAndFlush(r);
+        assertThat(r.getPurposeMemo()).isEqualTo("정정 메모");
+        assertThat(r.getReservedAt()).isEqualTo(LocalDateTime.of(2026, 11, 20, 10, 0));
+        assertThat(response.reservationId()).isEqualTo(RES_ID);
+    }
+
+    @Test
+    @DisplayName("지난 예약의 일시를 오늘 이후로 옮기는데 같은 차량에 다른 유효 예약이 있으면 → 여전히 409 + 그 예약 번호")
+    void movingPastReservationToFutureStillChecksActive() {
+        Reservation r = pastReserved();
+        Reservation other = reservation(8L, LocalDateTime.of(2026, 11, 30, 10, 0), ReservationStatus.RESERVED, 0);
+        when(repository.findByVehiclesAndStatusFrom(anyLong(), anyCollection(), any(), any()))
+            .thenReturn(List.of(other));
+
+        assertThatThrownBy(() -> service().update(SHOP, RES_ID,
+            request(0, LocalDateTime.of(2026, 11, 28, 9, 0), null, null, null)))
+            .isInstanceOfSatisfying(BusinessException.class, e -> {
+                assertThat(e.code()).isEqualTo(ErrorCode.RESERVATION_ACTIVE_EXISTS);
+                assertThat(e.details()).isEqualTo(Map.of("reservationId", 8L));
+            });
+
+        assertThat(r.getReservedAt()).isEqualTo(LocalDateTime.of(2026, 11, 20, 10, 0));
+        verify(repository, never()).saveAndFlush(any());
+    }
+
+    @Test
+    @DisplayName("지난 예약의 일시를 오늘 이후로 옮길 때 다른 유효 예약이 없으면 → 변경 성공")
+    void movingPastReservationToFutureWithoutConflict() {
+        Reservation r = pastReserved();
+        when(repository.findByVehiclesAndStatusFrom(anyLong(), anyCollection(), any(), any())).thenReturn(List.of());
+
+        service().update(SHOP, RES_ID, request(0, LocalDateTime.of(2026, 11, 28, 9, 0), null, null, null));
+
+        assertThat(r.getReservedAt()).isEqualTo(LocalDateTime.of(2026, 11, 28, 9, 0));
         verify(repository).saveAndFlush(r);
     }
 

@@ -205,14 +205,16 @@ public class ReservationService implements ReservationReader {
         }
         if (reservedAt != null) {
             requireNotPastDate(reservedAt);
+            // 근거: 08 19번 — 유효 예약이 둘이 되는 길은 일시를 바꿔 지난 예약을 오늘 이후로 옮기는 것뿐이다.
+            // 메모·항목만 바꾸면 유효 여부가 그대로라 검사하지 않는다(지난 예약의 메모가 다른 예약 때문에 막히지 않게).
+            activeCandidates(shopId, List.of(reservation.getVehicleId())).stream()
+                .filter(r -> !r.getId().equals(reservation.getId()))
+                .findFirst()
+                .ifPresent(existing -> {
+                    throw new BusinessException(ErrorCode.RESERVATION_ACTIVE_EXISTS,
+                        Map.of("reservationId", existing.getId()));
+                });
         }
-        activeCandidates(shopId, List.of(reservation.getVehicleId())).stream()
-            .filter(r -> !r.getId().equals(reservation.getId()))
-            .findFirst()
-            .ifPresent(existing -> {
-                throw new BusinessException(ErrorCode.RESERVATION_ACTIVE_EXISTS,
-                    Map.of("reservationId", existing.getId()));
-            });
 
         reservation.change(LocalDateTime.now(clock), reservedAt, purpose == null ? null : purpose.other(), purpose == null ? null : purpose.memo());
         if (itemIds != null) {

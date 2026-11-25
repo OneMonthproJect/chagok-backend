@@ -98,6 +98,7 @@ class EndpointGuardTest {
     void e3_adminCannotUseShopApi() throws Exception {
         expectError(mvc.perform(get("/api/customers").header("Authorization", adminToken())), 403, "FORBIDDEN");
         expectError(mvc.perform(get("/api/home").header("Authorization", adminToken())), 403, "FORBIDDEN");
+        expectError(mvc.perform(get("/api/targets").header("Authorization", adminToken())), 403, "FORBIDDEN");
     }
 
     @Test

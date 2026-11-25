@@ -159,6 +159,8 @@ class ReservationUpdateServiceTest {
         verify(itemRepository).deleteAllOf(SHOP, RES_ID);
         verify(itemRepository, never()).saveAll(any());
         assertThat(r.getPurposeMemo()).isNull();
+        // 일시를 보내지 않았으므로 같은 차량 유효 예약 확인은 하지 않는다
+        verify(repository, never()).findByVehiclesAndStatusFrom(anyLong(), anyCollection(), any(), any());
     }
 
     @Test

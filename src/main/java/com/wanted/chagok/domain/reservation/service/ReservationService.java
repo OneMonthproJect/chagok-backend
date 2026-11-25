@@ -211,8 +211,10 @@ public class ReservationService implements ReservationReader {
 
     /**
      * API 19 예약 변경 (04 F-RSV-06, R7·R8·R9·R11·R14). 보낸 필드만 바꾼다. 순서(08 19번): 바꿀 필드 없음(400, 소유 확인보다 먼저) →
-     * 정비소 소유(404) → 상태 {@code RESERVED}(409) → {@code version} 일치(409) → 시각·날짜(400) → 항목(400) →
+     * 정비소 소유(404) → 상태 {@code RESERVED}(409) → {@code version} 일치(409) → 30분 단위(400) → 항목(400) → 날짜(400) →
      * 같은 차량 유효 예약 1건(자기 자신 제외, 409) → 변경. 하나라도 어긋나면 아무것도 바꾸지 않는다.
+     * 날짜 규칙과 같은 차량 유효 예약 확인은 <b>일시({@code reservedAt})를 보낼 때만</b> 한다(08 19번). 예약 목적·메모만 바꿀 때는
+     * 유효 예약이 늘지 않으므로 하지 않아, 지난 날짜 예약의 메모도 다른 예약 때문에 막히지 않는다.
      * 예약 목적 항목은 지운 뒤 다시 넣고, 그 항목만 바뀌어도 {@code version}이 오르도록 {@code Reservation.change}가 수정 시각을
      * 갱신한다(R11). 일시·메모와 함께 바뀌어도 {@code version}은 한 번만 오른다({@code @Version}, flush의 UPDATE).
      */

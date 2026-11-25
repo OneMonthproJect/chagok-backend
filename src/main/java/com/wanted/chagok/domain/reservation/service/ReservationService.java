@@ -4,9 +4,11 @@ import com.wanted.chagok.domain.customer.api.CustomerReader;
 import com.wanted.chagok.domain.customer.api.VehicleSummary;
 import com.wanted.chagok.domain.item.api.ItemReader;
 import com.wanted.chagok.domain.item.api.ItemRef;
+import com.wanted.chagok.domain.reservation.api.ReservationDay;
 import com.wanted.chagok.domain.reservation.api.ReservationDetail;
 import com.wanted.chagok.domain.reservation.api.ReservationReader;
 import com.wanted.chagok.domain.reservation.api.ReservationRef;
+import com.wanted.chagok.domain.reservation.api.ReservationSummary;
 import com.wanted.chagok.domain.reservation.dto.ReservationCreateRequest;
 import com.wanted.chagok.domain.reservation.dto.ReservationCreateResponse;
 import com.wanted.chagok.domain.reservation.dto.ReservationListResponse;
@@ -81,6 +83,22 @@ public class ReservationService implements ReservationReader {
             active.putIfAbsent(r.getVehicleId(), new ReservationRef(r.getId(), r.getVehicleId(), r.getReservedAt()));
         }
         return active;
+    }
+
+    /**
+     * 홈의 오늘 예약(API 04)용 하루치 조회. 목록은 15번(기간 조회)의 조립을 그대로 쓴다(같은 모양, 같은 N+1 방지).
+     * 건수는 취소를 뺀다(D-63 B05) — 취소 상태는 P0-나머지(V2)에서 생기므로 지금은 목록 전체와 같고, 그때 여기서 뺀다.
+     */
+    // LIMIT: 정비소·하루 예약 수십 건 이하 가정(08 15번과 같다, 쪽 나누기 없음) / 넘으면 쪽 나누기를 다시 정한다
+    @Override
+    @Transactional(readOnly = true)
+    public ReservationDay findByDate(long shopId, LocalDate date) {
+        List<ReservationSummary> reservations = list(shopId, date, date).items().stream()
+            .map(i -> new ReservationSummary(i.reservationId(), i.reservedAt(), i.status().name(), i.needsAction(),
+                i.version(), i.vehicleId(), i.plateNumber(), i.customerId(), i.customerName(), i.phone(),
+                i.purposeSummary()))
+            .toList();
+        return new ReservationDay(reservations.size(), reservations);
     }
 
     /** 예약 상세 패널(API 17)용 한 건 조회. 소속 확인은 {@link #getOwned} 한 곳, "처리 필요"는 Entity가 판정한다(D-23). */

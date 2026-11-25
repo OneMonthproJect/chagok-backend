@@ -39,6 +39,10 @@ class DemoSeedTest {
 
     private static final FileSystemResource SEED = new FileSystemResource("db/seed/demo_seed.sql");
 
+    /** 시드와 같은 "지금"·"오늘": 서울 기준. MySQL 세션 시간대에 기대지 않는다 (07 7장, chagok-docs#110). */
+    static final String NOW = "CONVERT_TZ(UTC_TIMESTAMP(), '+00:00', '+09:00')";
+    static final String TODAY = "DATE(" + NOW + ")";
+
     @Autowired
     private DataSource dataSource;
 
@@ -123,23 +127,23 @@ class DemoSeedTest {
 
         // 7.2·7.4 정비 기록: 차량·항목·구분·출처·날짜(오늘 기준 상대값)·주행거리가 07 표와 같다
         List<String> expectedRecords = List.of(
-            "차곡카센터|12가0001|ENGINE_OIL|REPLACE|SHOP|" + date(jdbc, "CURDATE() - INTERVAL 6 MONTH - INTERVAL 7 DAY") + "|40000",
-            "차곡카센터|12가0001|ENGINE_OIL|INSPECT|SHOP|" + date(jdbc, "CURDATE() - INTERVAL 2 MONTH") + "|-",
-            "차곡카센터|34나0002|ENGINE_OIL|REPLACE|SHOP|" + date(jdbc, "CURDATE() - INTERVAL 6 MONTH - INTERVAL 10 DAY") + "|-",
-            "차곡카센터|56다0003|BRAKE_PAD|REPLACE|SHOP|" + date(jdbc, "CURDATE() - INTERVAL 12 MONTH + INTERVAL 20 DAY") + "|-",
-            "차곡카센터|78라0004|ENGINE_OIL|REPLACE|SHOP|" + date(jdbc, "CURDATE() - INTERVAL 2 MONTH") + "|45000",
-            "차곡카센터|11바0006|ENGINE_OIL|REPLACE|SHOP|" + date(jdbc, "CURDATE() - INTERVAL 8 MONTH") + "|-",
-            "차곡카센터|11바0006|ENGINE_OIL|DECLINE|SHOP|" + date(jdbc, "CURDATE() - INTERVAL 1 MONTH") + "|-",
-            "차곡카센터|22사0007|AC_FILTER|REPLACE|SHOP|" + date(jdbc, "CURDATE() - INTERVAL 13 MONTH") + "|-",
-            "차곡카센터|22사0007|AC_FILTER|EXTERNAL|CUSTOMER_STATEMENT|" + date(jdbc, "CURDATE() - INTERVAL 1 MONTH") + "|-",
-            "차곡카센터|33아0008|TIRE|REPLACE|SHOP|" + date(jdbc, "CURDATE() - INTERVAL 6 MONTH + INTERVAL 20 DAY") + "|-",
-            "차곡카센터|33아0008|TIRE|INSPECT|SHOP|" + date(jdbc, "CURDATE() - INTERVAL 2 MONTH") + "|-",
-            "차곡카센터|44자0009|ENGINE_OIL|REPLACE|SHOP|" + date(jdbc, "CURDATE() - INTERVAL 7 MONTH") + "|-",
-            "차곡카센터|55차0010|BATTERY|REPLACE|SHOP|" + date(jdbc, "CURDATE() - INTERVAL 36 MONTH + INTERVAL 20 DAY") + "|-",
-            "차곡카센터|55차0010|AIR_CLEANER|REPLACE|SHOP|" + date(jdbc, "CURDATE() - INTERVAL 3 MONTH") + "|-",
-            "차곡카센터|55차0010|AC_FILTER|REPLACE|SHOP|" + date(jdbc, "CURDATE() - INTERVAL 3 MONTH") + "|-",
-            "차곡카센터|55차0010|ENGINE_OIL|REPLACE|SHOP|" + date(jdbc, "CURDATE() - INTERVAL 1 MONTH") + "|-",
-            "바른카센터|12가0001|ENGINE_OIL|REPLACE|SHOP|" + date(jdbc, "CURDATE() - INTERVAL 7 MONTH") + "|-");
+            "차곡카센터|12가0001|ENGINE_OIL|REPLACE|SHOP|" + date(jdbc, TODAY + " - INTERVAL 6 MONTH - INTERVAL 7 DAY") + "|40000",
+            "차곡카센터|12가0001|ENGINE_OIL|INSPECT|SHOP|" + date(jdbc, TODAY + " - INTERVAL 2 MONTH") + "|-",
+            "차곡카센터|34나0002|ENGINE_OIL|REPLACE|SHOP|" + date(jdbc, TODAY + " - INTERVAL 6 MONTH - INTERVAL 10 DAY") + "|-",
+            "차곡카센터|56다0003|BRAKE_PAD|REPLACE|SHOP|" + date(jdbc, TODAY + " - INTERVAL 12 MONTH + INTERVAL 20 DAY") + "|-",
+            "차곡카센터|78라0004|ENGINE_OIL|REPLACE|SHOP|" + date(jdbc, TODAY + " - INTERVAL 2 MONTH") + "|45000",
+            "차곡카센터|11바0006|ENGINE_OIL|REPLACE|SHOP|" + date(jdbc, TODAY + " - INTERVAL 8 MONTH") + "|-",
+            "차곡카센터|11바0006|ENGINE_OIL|DECLINE|SHOP|" + date(jdbc, TODAY + " - INTERVAL 1 MONTH") + "|-",
+            "차곡카센터|22사0007|AC_FILTER|REPLACE|SHOP|" + date(jdbc, TODAY + " - INTERVAL 13 MONTH") + "|-",
+            "차곡카센터|22사0007|AC_FILTER|EXTERNAL|CUSTOMER_STATEMENT|" + date(jdbc, TODAY + " - INTERVAL 1 MONTH") + "|-",
+            "차곡카센터|33아0008|TIRE|REPLACE|SHOP|" + date(jdbc, TODAY + " - INTERVAL 6 MONTH + INTERVAL 20 DAY") + "|-",
+            "차곡카센터|33아0008|TIRE|INSPECT|SHOP|" + date(jdbc, TODAY + " - INTERVAL 2 MONTH") + "|-",
+            "차곡카센터|44자0009|ENGINE_OIL|REPLACE|SHOP|" + date(jdbc, TODAY + " - INTERVAL 7 MONTH") + "|-",
+            "차곡카센터|55차0010|BATTERY|REPLACE|SHOP|" + date(jdbc, TODAY + " - INTERVAL 36 MONTH + INTERVAL 20 DAY") + "|-",
+            "차곡카센터|55차0010|AIR_CLEANER|REPLACE|SHOP|" + date(jdbc, TODAY + " - INTERVAL 3 MONTH") + "|-",
+            "차곡카센터|55차0010|AC_FILTER|REPLACE|SHOP|" + date(jdbc, TODAY + " - INTERVAL 3 MONTH") + "|-",
+            "차곡카센터|55차0010|ENGINE_OIL|REPLACE|SHOP|" + date(jdbc, TODAY + " - INTERVAL 1 MONTH") + "|-",
+            "바른카센터|12가0001|ENGINE_OIL|REPLACE|SHOP|" + date(jdbc, TODAY + " - INTERVAL 7 MONTH") + "|-");
         assertThat(jdbc.queryForList(
             "SELECT CONCAT_WS('|', sh.name, v.plate_number, si.code, r.record_type, r.source, r.record_date, COALESCE(r.mileage, '-'))"
                 + " FROM maintenance_record r JOIN shop sh ON sh.id = r.shop_id JOIN vehicle v ON v.id = r.vehicle_id"
@@ -162,17 +166,17 @@ class DemoSeedTest {
                 + " JOIN staff a ON a.id = r.assignee_staff_id JOIN staff c ON c.id = r.created_by_staff_id"
                 + " WHERE r.shop_id = ? ORDER BY r.id", String.class, shopA))
             .containsExactly(
-                "78라0004|" + datetime(jdbc, "TIMESTAMP(CURDATE(), '10:00:00')") + "|RESERVED|0|-|ENGINE_OIL|mech_a|mech_a",
-                "22사0007|" + datetime(jdbc, "TIMESTAMP(CURDATE(), '14:30:00')") + "|RESERVED|1|에어컨 냄새|-|owner_a|owner_a",
-                "34나0002|" + datetime(jdbc, "TIMESTAMP(CURDATE() + INTERVAL 2 DAY, '10:00:00')") + "|RESERVED|0|-|ENGINE_OIL|mech_a|mech_a",
-                "55차0010|" + datetime(jdbc, "TIMESTAMP(CURDATE() - INTERVAL 1 DAY, '15:00:00')") + "|RESERVED|0|-|BATTERY|owner_a|owner_a");
+                "78라0004|" + datetime(jdbc, "TIMESTAMP(" + TODAY + ", '10:00:00')") + "|RESERVED|0|-|ENGINE_OIL|mech_a|mech_a",
+                "22사0007|" + datetime(jdbc, "TIMESTAMP(" + TODAY + ", '14:30:00')") + "|RESERVED|1|에어컨 냄새|-|owner_a|owner_a",
+                "34나0002|" + datetime(jdbc, "TIMESTAMP(" + TODAY + " + INTERVAL 2 DAY, '10:00:00')") + "|RESERVED|0|-|ENGINE_OIL|mech_a|mech_a",
+                "55차0010|" + datetime(jdbc, "TIMESTAMP(" + TODAY + " - INTERVAL 1 DAY, '15:00:00')") + "|RESERVED|0|-|BATTERY|owner_a|owner_a");
         // 7.5: 홈 "오늘 예약" 2건
-        assertThat(count(jdbc, "SELECT COUNT(*) FROM reservation WHERE shop_id = ? AND DATE(reserved_at) = CURDATE()", shopA))
+        assertThat(count(jdbc, "SELECT COUNT(*) FROM reservation WHERE shop_id = ? AND DATE(reserved_at) = " + TODAY, shopA))
             .isEqualTo(2);
 
         // 생성 시각: 미래 시각 없음, 정비 기록은 기록 날짜와 같은 날 (07 7장 "날짜 칼럼과 어긋나지 않게")
         for (String table : expectedCounts.keySet()) {
-            assertThat(count(jdbc, "SELECT COUNT(*) FROM " + table + " WHERE created_at > NOW()"))
+            assertThat(count(jdbc, "SELECT COUNT(*) FROM " + table + " WHERE created_at > " + NOW))
                 .as("future created_at in %s", table).isZero();
         }
         assertThat(count(jdbc, "SELECT COUNT(*) FROM maintenance_record WHERE DATE(created_at) <> record_date")).isZero();

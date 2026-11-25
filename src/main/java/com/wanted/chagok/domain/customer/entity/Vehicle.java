@@ -75,6 +75,20 @@ public class Vehicle {
         return new Vehicle(shopId, customerId, plateNumber, model, modelYear, latestMileage);
     }
 
+    /**
+     * 방문·정비 기록 저장 때 차량 값을 채운다 (04 F-MNT-01, 05 POL-60).
+     * 연식은 비어 있을 때만 채우고(이미 있으면 그대로), 최근 주행거리는 비어 있거나 더 클 때만 갱신한다(작으면 그대로).
+     * 값의 범위 검증은 호출하는 서비스가 한다.
+     */
+    public void applyVisit(Integer modelYear, Integer mileage) {
+        if (this.modelYear == null && modelYear != null) {
+            this.modelYear = modelYear;
+        }
+        if (mileage != null && (this.latestMileage == null || mileage > this.latestMileage)) {
+            this.latestMileage = mileage;
+        }
+    }
+
     public Long getId() {
         return id;
     }

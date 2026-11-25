@@ -66,7 +66,7 @@ class ReservationActionControllerTest {
     @DisplayName("R13 맞는 version → 200, 08 18번 응답(reservedAt 없음), shopId는 토큰의 값으로 service에 전달")
     void completeSuccess() throws Exception {
         when(service.complete(3L, 5L, 0))
-            .thenReturn(new ReservationResponse(5L, ReservationStatus.COMPLETED, 4L, 1));
+            .thenReturn(new ReservationResponse(5L, ReservationStatus.COMPLETED, 4L, 1, null));
 
         complete("/api/reservations/5/complete", "{\"version\":0}")
             .andExpect(status().isOk())
@@ -84,7 +84,7 @@ class ReservationActionControllerTest {
     @DisplayName("요청 본문의 shopId는 무시한다 (X8) — service에는 토큰의 shopId(3)만 간다")
     void bodyShopIdIsIgnored() throws Exception {
         when(service.complete(3L, 5L, 0))
-            .thenReturn(new ReservationResponse(5L, ReservationStatus.COMPLETED, 4L, 1));
+            .thenReturn(new ReservationResponse(5L, ReservationStatus.COMPLETED, 4L, 1, null));
 
         complete("/api/reservations/5/complete", "{\"version\":0,\"shopId\":99}").andExpect(status().isOk());
 

@@ -10,6 +10,7 @@ import com.wanted.chagok.domain.reservation.dto.ReservationCreateRequest;
 import com.wanted.chagok.domain.reservation.dto.ReservationCreateResponse;
 import com.wanted.chagok.domain.reservation.dto.ReservationListResponse;
 import com.wanted.chagok.domain.reservation.dto.ReservationResponse;
+import com.wanted.chagok.domain.reservation.dto.ReservationUpdateRequest;
 import com.wanted.chagok.domain.reservation.entity.Reservation;
 import com.wanted.chagok.domain.reservation.entity.ReservationItem;
 import com.wanted.chagok.domain.reservation.entity.ReservationStatus;
@@ -36,7 +37,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 /**
  * 예약 유스케이스. 다른 도메인 계약({@code ReservationReader})을 구현하고, 기간 조회(API 15)·등록(API 16)·
- * 방문 완료(API 18)를 한다. 변경(API 19)은 이 클래스에 메서드를 더한다.
+ * 방문 완료(API 18)·변경(API 19)을 한다.
  * 다른 도메인은 {@code customer.api}·{@code item.api}로만 부른다 (CONVENTIONS 3장).
  */
 @Service
@@ -73,14 +74,18 @@ public class ReservationService implements ReservationReader {
         if (vehicleIds.isEmpty()) {
             return Map.of();
         }
-        LocalDate today = LocalDate.now(clock);
         Map<Long, ReservationRef> active = new LinkedHashMap<>();
         // 이른 순서로 오므로 차량마다 처음 만난 것이 가장 이른 예약이다
-        for (Reservation r : reservationRepository.findByVehiclesAndStatusFrom(
-                shopId, vehicleIds, ReservationStatus.RESERVED, today.atStartOfDay())) {
+        for (Reservation r : activeCandidates(shopId, vehicleIds)) {
             active.putIfAbsent(r.getVehicleId(), new ReservationRef(r.getId(), r.getVehicleId(), r.getReservedAt()));
         }
         return active;
+    }
+
+    /** 유효 예약 판정의 한 곳 (D-22): {@code RESERVED} + 예약 날짜 ≥ 오늘, 이른 순. 조회(14)·등록(16)·변경(19)이 같이 쓴다. */
+    private List<Reservation> activeCandidates(long shopId, Collection<Long> vehicleIds) {
+        return reservationRepository.findByVehiclesAndStatusFrom(
+            shopId, vehicleIds, ReservationStatus.RESERVED, LocalDate.now(clock).atStartOfDay());
     }
 
     /**
@@ -137,18 +142,10 @@ public class ReservationService implements ReservationReader {
         customerReader.getOwnedVehicle(shopId, vehicleId);
 
         LocalDateTime reservedAt = request.reservedAt();
-        if (reservedAt.getMinute() % 30 != 0 || reservedAt.getSecond() != 0 || reservedAt.getNano() != 0) {
-            throw BusinessException.invalidField("reservedAt", "30분 단위로 입력해 주세요.");
-        }
-        List<Long> itemIds = purposeItemIds(request);
-        if (new HashSet<>(itemIds).size() != itemIds.size()) {
-            throw BusinessException.invalidField("purpose.itemIds", "같은 항목을 두 번 고를 수 없습니다.");
-        }
-        itemReader.requireActiveItems(shopId, itemIds, "purpose.itemIds");
-
-        if (reservedAt.toLocalDate().isBefore(LocalDate.now(clock))) {
-            throw new BusinessException(ErrorCode.RESERVATION_PAST_DATE);
-        }
+        requireHalfHour(reservedAt);
+        List<Long> itemIds = purposeItemIds(request.purpose());
+        requireValidItems(shopId, itemIds);
+        requireNotPastDate(reservedAt);
         ReservationRef active = findActiveByVehicleIds(shopId, List.of(vehicleId)).get(vehicleId);
         if (active != null) {
             throw new BusinessException(ErrorCode.RESERVATION_ACTIVE_EXISTS,
@@ -181,6 +178,54 @@ public class ReservationService implements ReservationReader {
         return ReservationResponse.statusChanged(reservation);
     }
 
+    /**
+     * API 19 예약 변경 (04 F-RSV-06, R7·R8·R9·R11·R14). 보낸 필드만 바꾼다. 순서(08 19번): 바꿀 필드 없음(400, 소유 확인보다 먼저) →
+     * 정비소 소유(404) → 상태 {@code RESERVED}(409) → {@code version} 일치(409) → 시각·날짜(400) → 항목(400) →
+     * 같은 차량 유효 예약 1건(자기 자신 제외, 409) → 변경. 하나라도 어긋나면 아무것도 바꾸지 않는다.
+     * 예약 목적 항목은 지운 뒤 다시 넣고, 그 항목만 바뀌어도 {@code version}이 오르도록 {@code Reservation.change}가 수정 시각을
+     * 갱신한다(R11). 일시·메모와 함께 바뀌어도 {@code version}은 한 번만 오른다({@code @Version}, flush의 UPDATE).
+     */
+    @Transactional
+    public ReservationResponse update(long shopId, long reservationId, ReservationUpdateRequest request) {
+        if (!request.hasChange()) {
+            throw BusinessException.invalidField("reservedAt", "바꿀 항목을 하나 이상 보내 주세요.");
+        }
+        Reservation reservation = getOwned(shopId, reservationId);
+        reservation.assertChangeable(request.version());
+
+        // 검증 순서는 등록(16)과 같다: 30분 단위 → 항목 → 날짜
+        LocalDateTime reservedAt = request.reservedAt();
+        if (reservedAt != null) {
+            requireHalfHour(reservedAt);
+        }
+        ReservationCreateRequest.Purpose purpose = request.purpose();
+        List<Long> itemIds = purpose == null || purpose.itemIds() == null ? null : purposeItemIds(purpose);
+        if (itemIds != null) {
+            requireValidItems(shopId, itemIds);
+        }
+        if (reservedAt != null) {
+            requireNotPastDate(reservedAt);
+        }
+        activeCandidates(shopId, List.of(reservation.getVehicleId())).stream()
+            .filter(r -> !r.getId().equals(reservation.getId()))
+            .findFirst()
+            .ifPresent(existing -> {
+                throw new BusinessException(ErrorCode.RESERVATION_ACTIVE_EXISTS,
+                    Map.of("reservationId", existing.getId()));
+            });
+
+        reservation.change(LocalDateTime.now(clock), reservedAt, purpose == null ? null : purpose.other(), purpose == null ? null : purpose.memo());
+        if (itemIds != null) {
+            reservationItemRepository.deleteAllOf(shopId, reservation.getId());
+            if (!itemIds.isEmpty()) {
+                reservationItemRepository.saveAll(
+                    itemIds.stream().map(itemId -> ReservationItem.of(shopId, reservation.getId(), itemId)).toList());
+            }
+        }
+        reservationRepository.saveAndFlush(reservation);
+        return ReservationResponse.changed(reservation);
+    }
+
     /** 정비소 소속 확인의 한 곳. 없거나 다른 정비소 것이면 같은 404 (CONVENTIONS 4장, 08 X-규칙). */
     private Reservation getOwned(long shopId, long reservationId) {
         return reservationRepository.findByIdAndShopId(reservationId, shopId)
@@ -197,8 +242,29 @@ public class ReservationService implements ReservationReader {
         }
     }
 
-    private static List<Long> purposeItemIds(ReservationCreateRequest request) {
-        ReservationCreateRequest.Purpose purpose = request.purpose();
+    /** 08 16·19번 R1: 분이 00·30이고 초가 00. */
+    private static void requireHalfHour(LocalDateTime reservedAt) {
+        if (reservedAt.getMinute() % 30 != 0 || reservedAt.getSecond() != 0 || reservedAt.getNano() != 0) {
+            throw BusinessException.invalidField("reservedAt", "30분 단위로 입력해 주세요.");
+        }
+    }
+
+    /** 08 16·19번 R2·R7: 날짜가 어제 이전이면 400. 오늘의 지난 시각은 허용한다 (D-23). */
+    private void requireNotPastDate(LocalDateTime reservedAt) {
+        if (reservedAt.toLocalDate().isBefore(LocalDate.now(clock))) {
+            throw new BusinessException(ErrorCode.RESERVATION_PAST_DATE);
+        }
+    }
+
+    /** 08 16·19번 X11: 항목 중복 없음, 그 정비소의 쓰는 항목만. */
+    private void requireValidItems(long shopId, List<Long> itemIds) {
+        if (new HashSet<>(itemIds).size() != itemIds.size()) {
+            throw BusinessException.invalidField("purpose.itemIds", "같은 항목을 두 번 고를 수 없습니다.");
+        }
+        itemReader.requireActiveItems(shopId, itemIds, "purpose.itemIds");
+    }
+
+    private static List<Long> purposeItemIds(ReservationCreateRequest.Purpose purpose) {
         if (purpose == null || purpose.itemIds() == null) {
             return List.of();
         }

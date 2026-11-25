@@ -163,6 +163,19 @@ class MaintenanceServiceTest {
     }
 
     @Test
+    @DisplayName("API 11: 담당자 이름을 찾지 못해도 staffName은 null이 아닌 빈 문자열(08 11 필수 문자열)")
+    void listVisits_missingStaffName() {
+        when(repository.findByShopIdAndVehicleId(SHOP, VEHICLE)).thenReturn(List.of(
+            record(1, "a", 1, "2026-01-01", null, RecordType.REPLACE, "2026-01-01T10:00:00")));
+        stubItems();
+        when(staff.findNames(SHOP, Set.of(11L))).thenReturn(Map.of());
+
+        VisitListResponse result = service().listVisits(SHOP, VEHICLE, PageLimit.of(null, null));
+
+        assertThat(result.items()).extracting(VisitRef::staffName).containsExactly("");
+    }
+
+    @Test
     @DisplayName("API 11: 기록이 없는 차량은 items [] 이고 항목을 조회하지 않는다")
     void listVisits_noRecords() {
         when(repository.findByShopIdAndVehicleId(SHOP, VEHICLE)).thenReturn(List.of());

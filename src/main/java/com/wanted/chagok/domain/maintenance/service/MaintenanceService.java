@@ -84,6 +84,7 @@ public class MaintenanceService implements MaintenanceReader {
         if (limit <= 0) {
             return List.of();
         }
+        // LIMIT: listVisits와 같은 가정(차량당 기록 수십~수백 건 이하). 넘으면 visit_key 집계 쿼리로 바꾼다.
         List<VisitGroup> visits = visitsNewestFirst(records.findByShopIdAndVehicleId(shopId, vehicleId));
         return toRefs(shopId, visits.subList(0, Math.min(limit, visits.size())));
     }
@@ -91,6 +92,7 @@ public class MaintenanceService implements MaintenanceReader {
     @Override
     public long countVisits(long shopId, long vehicleId) {
         // 외부 기록만 있는 방문은 세지 않는다 (05 POL-45)
+        // LIMIT: listVisits와 같은 가정(차량당 기록 수십~수백 건 이하). 넘으면 visit_key 집계 쿼리로 바꾼다.
         return visitsNewestFirst(records.findByShopIdAndVehicleId(shopId, vehicleId)).stream()
             .filter(VisitGroup::hasShopRecord)
             .count();
@@ -129,9 +131,12 @@ public class MaintenanceService implements MaintenanceReader {
         Map<Long, String> staffNames = staff.findNames(shopId, staffIds);
 
         return visits.stream()
-            .map(v -> new VisitRef(v.visitKey(), v.visitDate(), v.mileage(), staffNames.get(v.staffId()),
+            .map(v -> new VisitRef(v.visitKey(), v.visitDate(), v.mileage(),
+                // 근거: staff_id는 NOT NULL FK라 항상 존재한다. 08 11의 staffName은 필수 문자열이라 방어용 "".
+                staffNames.getOrDefault(v.staffId(), ""),
                 v.rows().stream()
                     .map(r -> new VisitRef.VisitRecord(r.getId(), r.getServiceItemId(),
+                        // 근거: (shop_id, service_item_id) 복합 FK로 항목은 항상 존재한다. ""는 방어용이다.
                         itemRefs.containsKey(r.getServiceItemId()) ? itemRefs.get(r.getServiceItemId()).name() : "",
                         r.getRecordType().name(), r.getRecordDate(), r.getMemo()))
                     .toList()))

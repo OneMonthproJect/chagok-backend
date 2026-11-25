@@ -44,7 +44,7 @@ class CustomerWriterTest {
 
     private Vehicle owned(Integer year, Integer mileage) {
         Vehicle v = Vehicle.register(SHOP, 1L, "12가3456", "아반떼", year, mileage);
-        when(vehicles.findByIdAndShopId(VEHICLE, SHOP)).thenReturn(Optional.of(v));
+        when(vehicles.findForUpdateByIdAndShopId(VEHICLE, SHOP)).thenReturn(Optional.of(v));
         return v;
     }
 
@@ -73,7 +73,7 @@ class CustomerWriterTest {
     @Test
     @DisplayName("없거나 남의 정비소 차량이면 404 NOT_FOUND")
     void notOwnedVehicle() {
-        when(vehicles.findByIdAndShopId(VEHICLE, SHOP)).thenReturn(Optional.empty());
+        when(vehicles.findForUpdateByIdAndShopId(VEHICLE, SHOP)).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> service().applyVisit(SHOP, VEHICLE, 2019, 1_000))
             .isInstanceOfSatisfying(BusinessException.class, e -> assertThat(e.code()).isEqualTo(ErrorCode.NOT_FOUND));

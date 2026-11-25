@@ -29,6 +29,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
@@ -104,8 +105,7 @@ public class CustomerService implements CustomerReader, CustomerWriter {
 
     /** API 09. 차량과 그 고객(연락처 전체, D-40). 없거나 남의 정비소 차량이면 404 (X2). */
     public VehicleDetailResponse getVehicleDetail(long shopId, long vehicleId) {
-        Vehicle vehicle = vehicles.findByIdAndShopId(vehicleId, shopId)
-            .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND));
+        Vehicle vehicle = findOwnedVehicle(shopId, vehicleId, false);
         Customer customer = getOwned(shopId, vehicle.getCustomerId());
         return VehicleDetailResponse.of(vehicle, customer);
     }
@@ -114,8 +114,12 @@ public class CustomerService implements CustomerReader, CustomerWriter {
     private void checkModelYearUpperBound(Integer modelYear, String field) {
         int maxYear = LocalDate.now(clock).getYear() + 1;
         if (modelYear != null && modelYear > maxYear) {
-            throw BusinessException.invalidField(field, MIN_MODEL_YEAR + "년부터 " + maxYear + "년까지 입력할 수 있습니다.");
+            throw invalidModelYear(field, maxYear);
         }
+    }
+
+    private static BusinessException invalidModelYear(String field, int maxYear) {
+        return BusinessException.invalidField(field, MIN_MODEL_YEAR + "년부터 " + maxYear + "년까지 입력할 수 있습니다.");
     }
 
     /** 고객이 우리 정비소 것인지 확인한다. 없거나 남의 정비소 것이면 같은 404 (D-12). 차량 추가(API 08)·차량 상세(API 09)와 읽기 계약 {@code getOwnedCustomer}가 쓴다. */
@@ -126,8 +130,22 @@ public class CustomerService implements CustomerReader, CustomerWriter {
 
     @Override
     public VehicleRef getOwnedVehicle(long shopId, long vehicleId) {
-        Vehicle v = vehicles.findByIdAndShopId(vehicleId, shopId)
+        return toVehicleRef(findOwnedVehicle(shopId, vehicleId, false));
+    }
+
+    @Override
+    @Transactional(propagation = Propagation.MANDATORY)
+    public VehicleRef getOwnedVehicleForVisit(long shopId, long vehicleId) {
+        return toVehicleRef(findOwnedVehicle(shopId, vehicleId, true));
+    }
+
+    private Vehicle findOwnedVehicle(long shopId, long vehicleId, boolean forUpdate) {
+        return (forUpdate ? vehicles.findForUpdateByIdAndShopId(vehicleId, shopId)
+            : vehicles.findByIdAndShopId(vehicleId, shopId))
             .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND));
+    }
+
+    private static VehicleRef toVehicleRef(Vehicle v) {
         return new VehicleRef(v.getId(), v.getCustomerId(), v.getPlateNumber(), v.getModel(), v.getModelYear(),
             v.getLatestMileage());
     }
@@ -158,15 +176,11 @@ public class CustomerService implements CustomerReader, CustomerWriter {
     @Override
     @Transactional
     public void applyVisit(long shopId, long vehicleId, Integer modelYear, Integer mileage) {
-        Vehicle vehicle = vehicles.findByIdAndShopId(vehicleId, shopId)
-            .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND));
-        // 연식 상한 검사는 register와 같은 규칙이다. register는 #24가 같은 줄을 고치고 있어 이 PR에서는 건드리지 않았다.
-        // #24 머지 뒤 한 헬퍼로 합친다(하한 1980은 DTO @Min과 여기서 모두 확인).
-        int maxYear = LocalDate.now(clock).getYear() + 1;
-        if (modelYear != null && (modelYear < MIN_MODEL_YEAR || modelYear > maxYear)) {
-            throw BusinessException.invalidField("vehicle.modelYear",
-                MIN_MODEL_YEAR + "년부터 " + maxYear + "년까지 입력할 수 있습니다.");
+        Vehicle vehicle = findOwnedVehicle(shopId, vehicleId, true);
+        if (modelYear != null && modelYear < MIN_MODEL_YEAR) {
+            throw invalidModelYear("vehicle.modelYear", LocalDate.now(clock).getYear() + 1);
         }
+        checkModelYearUpperBound(modelYear, "vehicle.modelYear");
         if (mileage != null && (mileage < 0 || mileage > MAX_MILEAGE)) {
             throw BusinessException.invalidField("mileage", "0 이상 2,000,000 이하로 입력해 주세요.");
         }

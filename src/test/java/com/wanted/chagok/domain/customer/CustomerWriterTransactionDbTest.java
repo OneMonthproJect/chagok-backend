@@ -5,6 +5,10 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.wanted.chagok.domain.customer.api.CustomerWriter;
 import java.util.Map;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -40,13 +44,15 @@ class CustomerWriterTransactionDbTest {
 
     @BeforeEach
     void data() {
-        jdbc.update("INSERT INTO shop (name, phone, status, created_at) VALUES ('트랜잭션시험정비소', '02-900-0001', 'ACTIVE', NOW())");
-        shop = jdbc.queryForObject("SELECT LAST_INSERT_ID()", Long.class);
-        jdbc.update("INSERT INTO customer (shop_id, name, phone, consent, created_at, updated_at) VALUES (?, '시험고객', '010-9000-0001', FALSE, NOW(), NOW())", shop);
-        long customer = jdbc.queryForObject("SELECT LAST_INSERT_ID()", Long.class);
-        jdbc.update("INSERT INTO vehicle (shop_id, customer_id, plate_number, model, created_at, updated_at) VALUES (?, ?, '90가0001', '아반떼', NOW(), NOW())",
-            shop, customer);
-        vehicle = jdbc.queryForObject("SELECT LAST_INSERT_ID()", Long.class);
+        tx.executeWithoutResult(status -> {
+            jdbc.update("INSERT INTO shop (name, phone, status, created_at) VALUES ('트랜잭션시험정비소', '02-900-0001', 'ACTIVE', NOW())");
+            shop = jdbc.queryForObject("SELECT LAST_INSERT_ID()", Long.class);
+            jdbc.update("INSERT INTO customer (shop_id, name, phone, consent, created_at, updated_at) VALUES (?, '시험고객', '010-9000-0001', FALSE, NOW(), NOW())", shop);
+            long customer = jdbc.queryForObject("SELECT LAST_INSERT_ID()", Long.class);
+            jdbc.update("INSERT INTO vehicle (shop_id, customer_id, plate_number, model, created_at, updated_at) VALUES (?, ?, '90가0001', '아반떼', NOW(), NOW())",
+                shop, customer);
+            vehicle = jdbc.queryForObject("SELECT LAST_INSERT_ID()", Long.class);
+        });
     }
 
     @AfterEach
@@ -81,6 +87,39 @@ class CustomerWriterTransactionDbTest {
         tx.executeWithoutResult(status -> writer.applyVisit(shop, vehicle, 2019, 55_000));
 
         assertThat(row()).containsEntry("model_year", 2019).containsEntry("latest_mileage", 55_000);
+    }
+
+    @Test
+    @DisplayName("동시 방문: 두 번째 조회는 첫 방문이 커밋될 때까지 대기하고 더 낮은 주행거리로 덮어쓰지 않는다")
+    void concurrentVisitKeepsHigherMileage() throws Exception {
+        var secondStarted = new CountDownLatch(1);
+        var pool = Executors.newSingleThreadExecutor();
+        try {
+            var second = tx.execute(status -> {
+                writer.getOwnedVehicleForVisit(shop, vehicle);
+                var waiting = pool.submit(() -> tx.execute(other -> {
+                    secondStarted.countDown();
+                    var before = writer.getOwnedVehicleForVisit(shop, vehicle);
+                    writer.applyVisit(shop, vehicle, 2020, 55_000);
+                    return before;
+                }));
+                try {
+                    assertThat(secondStarted.await(5, TimeUnit.SECONDS)).isTrue();
+                    assertThatThrownBy(() -> waiting.get(1, TimeUnit.SECONDS)).isInstanceOf(TimeoutException.class);
+                } catch (InterruptedException ex) {
+                    Thread.currentThread().interrupt();
+                    throw new AssertionError(ex);
+                }
+                writer.applyVisit(shop, vehicle, 2019, 80_000);
+                return waiting;
+            });
+
+            assertThat(second.get(10, TimeUnit.SECONDS).latestMileage()).isEqualTo(80_000);
+            assertThat(row()).containsEntry("model_year", 2019).containsEntry("latest_mileage", 80_000);
+        } finally {
+            pool.shutdownNow();
+            assertThat(pool.awaitTermination(10, TimeUnit.SECONDS)).isTrue();
+        }
     }
 
     private Map<String, Object> row() {

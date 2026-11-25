@@ -72,7 +72,7 @@ public class MaintenanceService implements MaintenanceReader {
      */
     @Transactional
     public VisitSaveResponse saveVisit(long shopId, long staffId, long vehicleId, VisitSaveRequest request) {
-        VehicleRef vehicle = customers.getOwnedVehicle(shopId, vehicleId);
+        VehicleRef vehicle = vehicleWriter.getOwnedVehicleForVisit(shopId, vehicleId);
 
         rejectNotOpenInputs(request);
         if (request.visitDate().isAfter(LocalDate.now(clock))) {

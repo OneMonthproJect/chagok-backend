@@ -100,4 +100,15 @@ class ReservationTest {
         assertCode(() -> r.complete(5), ErrorCode.CONCURRENT_MODIFICATION);
         assertCode(() -> r.complete(-1), ErrorCode.CONCURRENT_MODIFICATION);
     }
+
+    @Test
+    @DisplayName("처리 필요(D-23): RESERVED이고 예약 시각이 현재보다 이전일 때만 true")
+    void needsAction() {
+        // 예약은 11-27 11:30
+        assertThat(loaded(ReservationStatus.RESERVED, 0).needsAction(LocalDateTime.of(2026, 11, 27, 11, 31))).isTrue();
+        assertThat(loaded(ReservationStatus.RESERVED, 0).needsAction(LocalDateTime.of(2026, 11, 27, 11, 30))).isFalse(); // 정각은 아직
+        assertThat(loaded(ReservationStatus.RESERVED, 0).needsAction(LocalDateTime.of(2026, 11, 27, 9, 0))).isFalse();
+        assertThat(loaded(ReservationStatus.COMPLETED, 1).needsAction(LocalDateTime.of(2026, 11, 28, 9, 0))).isFalse();
+        assertThat(loaded(ReservationStatus.CANCELED, 1).needsAction(LocalDateTime.of(2026, 11, 28, 9, 0))).isFalse();
+    }
 }

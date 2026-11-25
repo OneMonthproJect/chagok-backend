@@ -32,4 +32,19 @@ public interface ReservationRepository extends JpaRepository<Reservation, Long> 
                                                   @Param("vehicleIds") Collection<Long> vehicleIds,
                                                   @Param("status") ReservationStatus status,
                                                   @Param("from") LocalDateTime from);
+
+    /**
+     * 기간 조회(API 15): 예약 일시가 {@code from} 이상 {@code toExclusive} 미만. 취소·노쇼도 포함하고 시각 순
+     * (같은 시각은 id 순)으로 돌려준다. 쪽 나누기는 없다(최대 42일, 08 15번).
+     */
+    @Query("""
+        select r from Reservation r
+        where r.shopId = :shopId
+          and r.reservedAt >= :from
+          and r.reservedAt < :toExclusive
+        order by r.reservedAt asc, r.id asc
+        """)
+    List<Reservation> findInPeriod(@Param("shopId") Long shopId,
+                                   @Param("from") LocalDateTime from,
+                                   @Param("toExclusive") LocalDateTime toExclusive);
 }

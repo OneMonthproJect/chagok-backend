@@ -17,8 +17,6 @@ import com.wanted.chagok.domain.customer.repository.VehicleRepository;
 import com.wanted.chagok.global.error.BusinessException;
 import com.wanted.chagok.global.error.ErrorCode;
 import com.wanted.chagok.global.web.PageLimit;
-import jakarta.persistence.EntityManager;
-import jakarta.persistence.LockModeType;
 import java.time.Clock;
 import java.time.LocalDate;
 import java.util.Collection;
@@ -31,7 +29,6 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
@@ -49,14 +46,11 @@ public class CustomerService implements CustomerReader, CustomerWriter {
     private final CustomerRepository customers;
     private final VehicleRepository vehicles;
     private final Clock clock;
-    private final EntityManager entityManager;
 
-    public CustomerService(CustomerRepository customers, VehicleRepository vehicles, Clock clock,
-                           EntityManager entityManager) {
+    public CustomerService(CustomerRepository customers, VehicleRepository vehicles, Clock clock) {
         this.customers = customers;
         this.vehicles = vehicles;
         this.clock = clock;
-        this.entityManager = entityManager;
     }
 
     /** API 05. 비어 있는 {@code q}는 전체(최근 등록순). 검색어의 공백·하이픈은 무시한다. */
@@ -110,15 +104,23 @@ public class CustomerService implements CustomerReader, CustomerWriter {
 
     /** API 09. 차량과 그 고객(연락처 전체, D-40). 없거나 남의 정비소 차량이면 404 (X2). */
     public VehicleDetailResponse getVehicleDetail(long shopId, long vehicleId) {
-        Vehicle vehicle = ownedVehicle(shopId, vehicleId);
+        Vehicle vehicle = findOwnedVehicle(shopId, vehicleId, false);
         Customer customer = getOwned(shopId, vehicle.getCustomerId());
         return VehicleDetailResponse.of(vehicle, customer);
     }
 
-    /** 차량이 우리 정비소 것인지 확인한다. 없거나 남의 정비소 것이면 같은 404 (D-12). 차량 소속 확인은 여기 한 곳이다. */
-    private Vehicle ownedVehicle(long shopId, long vehicleId) {
-        return vehicles.findByIdAndShopId(vehicleId, shopId)
+    /**
+     * 차량이 우리 정비소 것인지 확인한다. 없거나 남의 정비소 것이면 같은 404 (D-12). 차량 소속 확인은 여기 한 곳이다.
+     * {@code forUpdate}면 행을 잠가 읽는다(트랜잭션 종료까지).
+     */
+    private Vehicle findOwnedVehicle(long shopId, long vehicleId, boolean forUpdate) {
+        return (forUpdate ? vehicles.findForUpdateByIdAndShopId(vehicleId, shopId) : vehicles.findByIdAndShopId(vehicleId, shopId))
             .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND));
+    }
+
+    private static VehicleRef toVehicleRef(Vehicle v) {
+        return new VehicleRef(v.getId(), v.getCustomerId(), v.getPlateNumber(), v.getModel(), v.getModelYear(),
+            v.getLatestMileage());
     }
 
     /** 연식의 상한(현재 연도 + 1)은 시각이 필요해 Bean Validation 대신 {@code Clock}으로 확인한다 (D-63 B04). */
@@ -141,9 +143,14 @@ public class CustomerService implements CustomerReader, CustomerWriter {
 
     @Override
     public VehicleRef getOwnedVehicle(long shopId, long vehicleId) {
-        Vehicle v = ownedVehicle(shopId, vehicleId);
-        return new VehicleRef(v.getId(), v.getCustomerId(), v.getPlateNumber(), v.getModel(), v.getModelYear(),
-            v.getLatestMileage());
+        return toVehicleRef(findOwnedVehicle(shopId, vehicleId, false));
+    }
+
+    /** 방문 저장의 첫 차량 조회: 행을 잠가 읽는다(트랜잭션 종료까지). 호출한 쪽(maintenance)의 쓰기 트랜잭션에 참여한다. */
+    @Override
+    @Transactional
+    public VehicleRef getOwnedVehicleForVisit(long shopId, long vehicleId) {
+        return toVehicleRef(findOwnedVehicle(shopId, vehicleId, true));
     }
 
     @Override
@@ -172,10 +179,7 @@ public class CustomerService implements CustomerReader, CustomerWriter {
     @Override
     @Transactional
     public void applyVisit(long shopId, long vehicleId, Integer modelYear, Integer mileage) {
-        Vehicle vehicle = ownedVehicle(shopId, vehicleId);
-        // 같은 차량의 방문 저장이 겹쳐도 최근 주행거리가 낮아지지 않도록 행을 잠그고 최신 값을 다시 읽는다.
-        // saveVisit이 앞에서 차량을 읽어 영속성 컨텍스트에 올려 두었을 수 있으므로, 잠금 조회만으로는 낡은 값이 남아 refresh로 함께 읽는다.
-        entityManager.refresh(vehicle, LockModeType.PESSIMISTIC_WRITE);
+        Vehicle vehicle = findOwnedVehicle(shopId, vehicleId, true);
         // 하한 1980은 DTO @Min과 여기서 모두 확인, 상한은 등록·차량 추가와 같은 헬퍼
         if (modelYear != null && modelYear < MIN_MODEL_YEAR) {
             throw BusinessException.invalidField("vehicle.modelYear",

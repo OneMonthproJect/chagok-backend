@@ -34,9 +34,6 @@ class CustomerWriterTransactionDbTest {
     private CustomerWriter writer;
 
     @Autowired
-    private com.wanted.chagok.domain.customer.api.CustomerReader reader;
-
-    @Autowired
     private JdbcTemplate jdbc;
 
     @Autowired
@@ -94,23 +91,43 @@ class CustomerWriterTransactionDbTest {
     }
 
     @Test
-    @DisplayName("동시 저장: 먼저 읽어 둔 차량 값이 낡았어도(다른 저장이 더 큰 주행거리를 커밋) 최근 주행거리가 낮아지지 않는다")
-    void staleReadDoesNotLowerMileage() {
-        tx.executeWithoutResult(status -> {
-            reader.getOwnedVehicle(shop, vehicle); // saveVisit처럼 차량을 먼저 읽어 영속성 컨텍스트에 올린다 (주행거리 없음)
-            // 다른 방문 저장이 그사이 60,000을 커밋한 것을 흉내: 별도 트랜잭션(REQUIRES_NEW)으로 커밋한다.
-            new TransactionTemplate(tx.getTransactionManager(), requiresNew()).executeWithoutResult(
-                other -> jdbc.update("UPDATE vehicle SET latest_mileage = 60000 WHERE id = ?", vehicle));
-            writer.applyVisit(shop, vehicle, null, 50_000);
-        });
+    @DisplayName("동시 저장: 방문 저장이 차량 행을 잠그면 다른 저장은 끝날 때까지 기다리고, 그 뒤에도 주행거리가 낮아지지 않는다")
+    void lockedVehicleMakesOtherSaveWaitAndKeepsHigherMileage() throws Exception {
+        java.util.concurrent.CountDownLatch locked = new java.util.concurrent.CountDownLatch(1);
+        java.util.concurrent.CountDownLatch release = new java.util.concurrent.CountDownLatch(1);
+        java.util.concurrent.ExecutorService pool = java.util.concurrent.Executors.newFixedThreadPool(2);
+        try {
+            var first = pool.submit(() -> tx.executeWithoutResult(status -> {
+                writer.getOwnedVehicleForVisit(shop, vehicle); // saveVisit의 첫 차량 조회: 행 잠금
+                locked.countDown();
+                await(release);
+                writer.applyVisit(shop, vehicle, null, 60_000);
+            }));
+            assertThat(locked.await(10, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+            var second = pool.submit(() -> tx.executeWithoutResult(status -> {
+                writer.getOwnedVehicleForVisit(shop, vehicle);
+                writer.applyVisit(shop, vehicle, null, 50_000);
+            }));
+
+            assertThatThrownBy(() -> second.get(1, java.util.concurrent.TimeUnit.SECONDS))
+                .isInstanceOf(java.util.concurrent.TimeoutException.class);
+            release.countDown();
+            first.get(10, java.util.concurrent.TimeUnit.SECONDS);
+            second.get(10, java.util.concurrent.TimeUnit.SECONDS);
+        } finally {
+            release.countDown();
+            pool.shutdownNow();
+        }
 
         assertThat(row()).containsEntry("latest_mileage", 60_000);
     }
 
-    private static org.springframework.transaction.support.DefaultTransactionDefinition requiresNew() {
-        var definition = new org.springframework.transaction.support.DefaultTransactionDefinition();
-        definition.setPropagationBehavior(org.springframework.transaction.TransactionDefinition.PROPAGATION_REQUIRES_NEW);
-        return definition;
+    private static void await(java.util.concurrent.CountDownLatch latch) {
+        try {
+            latch.await(10, java.util.concurrent.TimeUnit.SECONDS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
     }
 
     private Map<String, Object> row() {

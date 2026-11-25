@@ -48,7 +48,7 @@ class CustomerServiceModelYearTest {
     private VehicleRepository vehicles;
 
     private CustomerService service() {
-        return new CustomerService(customers, vehicles, clock, org.mockito.Mockito.mock(jakarta.persistence.EntityManager.class));
+        return new CustomerService(customers, vehicles, clock);
     }
 
     private static CustomerCreateRequest.VehicleInput vehicle(Integer modelYear) {

@@ -75,7 +75,7 @@ class MaintenanceSaveServiceTest {
     }
 
     private void ownedVehicle(Integer modelYear, Integer latestMileage) {
-        when(customers.getOwnedVehicle(SHOP, VEHICLE))
+        when(vehicleWriter.getOwnedVehicleForVisit(SHOP, VEHICLE))
             .thenReturn(new VehicleRef(VEHICLE, 1L, "12가3456", "아반떼", modelYear, latestMileage));
     }
 
@@ -96,7 +96,7 @@ class MaintenanceSaveServiceTest {
     }
 
     private void noWrites() {
-        verifyNoInteractions(vehicleWriter);
+        verify(vehicleWriter, never()).applyVisit(anyLong(), anyLong(), any(), any());
         verify(repository, never()).saveAll(any());
     }
 
@@ -116,6 +116,7 @@ class MaintenanceSaveServiceTest {
         @SuppressWarnings("unchecked")
         ArgumentCaptor<List<MaintenanceRecord>> captor = ArgumentCaptor.forClass(List.class);
         var order = inOrder(vehicleWriter, repository);
+        order.verify(vehicleWriter).getOwnedVehicleForVisit(SHOP, VEHICLE);
         order.verify(vehicleWriter).applyVisit(SHOP, VEHICLE, null, 55_000);
         order.verify(repository).saveAll(captor.capture());
         List<MaintenanceRecord> rows = captor.getValue();
@@ -161,7 +162,7 @@ class MaintenanceSaveServiceTest {
     @Test
     @DisplayName("X5: 없거나 남의 정비소 차량이면 404이고 이후 조회·저장을 하지 않는다")
     void notOwnedVehicle() {
-        when(customers.getOwnedVehicle(SHOP, VEHICLE)).thenThrow(new BusinessException(ErrorCode.NOT_FOUND));
+        when(vehicleWriter.getOwnedVehicleForVisit(SHOP, VEHICLE)).thenThrow(new BusinessException(ErrorCode.NOT_FOUND));
 
         assertThatThrownBy(() -> service().saveVisit(SHOP, STAFF, VEHICLE,
             request(TODAY, 1_000, 2019, record(1, RecordType.REPLACE, null))))

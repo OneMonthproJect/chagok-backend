@@ -93,7 +93,8 @@ public class ReservationService implements ReservationReader {
     @Override
     @Transactional(readOnly = true)
     public ReservationDay findByDate(long shopId, LocalDate date) {
-        List<ReservationSummary> reservations = list(shopId, date, date).items().stream()
+        var items = list(shopId, date, date).items();
+        List<ReservationSummary> reservations = items.stream()
             .map(i -> new ReservationSummary(i.reservationId(), i.reservedAt(), i.status().name(), i.needsAction(),
                 i.version(), i.vehicleId(), i.plateNumber(), i.customerId(), i.customerName(), i.phone(),
                 i.purposeSummary()))

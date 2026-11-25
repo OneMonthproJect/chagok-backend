@@ -31,6 +31,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
@@ -124,8 +125,12 @@ public class CustomerService implements CustomerReader, CustomerWriter {
     private void checkModelYearUpperBound(Integer modelYear, String field) {
         int maxYear = LocalDate.now(clock).getYear() + 1;
         if (modelYear != null && modelYear > maxYear) {
-            throw BusinessException.invalidField(field, MIN_MODEL_YEAR + "년부터 " + maxYear + "년까지 입력할 수 있습니다.");
+            throw invalidModelYear(field, maxYear);
         }
+    }
+
+    private static BusinessException invalidModelYear(String field, int maxYear) {
+        return BusinessException.invalidField(field, MIN_MODEL_YEAR + "년부터 " + maxYear + "년까지 입력할 수 있습니다.");
     }
 
     /** 고객이 우리 정비소 것인지 확인한다. 없거나 남의 정비소 것이면 같은 404 (D-12). 차량 추가(API 08)·차량 상세(API 09)와 읽기 계약 {@code getOwnedCustomer}가 쓴다. */

@@ -2,10 +2,12 @@ package com.wanted.chagok.domain.customer.repository;
 
 import com.wanted.chagok.domain.customer.api.VehicleSummary;
 import com.wanted.chagok.domain.customer.entity.Vehicle;
+import jakarta.persistence.LockModeType;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -13,6 +15,9 @@ import org.springframework.data.repository.query.Param;
 public interface VehicleRepository extends JpaRepository<Vehicle, Long> {
 
     Optional<Vehicle> findByIdAndShopId(Long id, long shopId);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    Optional<Vehicle> findForUpdateByIdAndShopId(Long id, long shopId);
 
     List<Vehicle> findByShopIdAndCustomerIdInOrderByIdAsc(long shopId, Collection<Long> customerIds);
 

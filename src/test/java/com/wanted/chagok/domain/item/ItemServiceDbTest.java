@@ -5,6 +5,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.wanted.chagok.domain.item.api.ItemReader;
 import com.wanted.chagok.domain.item.api.ItemRef;
+import com.wanted.chagok.domain.item.dto.ItemListResponse;
+import com.wanted.chagok.domain.item.service.ItemService;
 import com.wanted.chagok.global.error.BusinessException;
 import com.wanted.chagok.global.error.ErrorCode;
 import java.util.List;
@@ -29,6 +31,9 @@ class ItemServiceDbTest {
 
     @Autowired
     private ItemReader reader;
+
+    @Autowired
+    private ItemService itemService;
 
     @Autowired
     private JdbcTemplate jdbc;
@@ -64,6 +69,16 @@ class ItemServiceDbTest {
         assertThat(first.cycleKm()).isEqualTo(10_000);
         assertThat(first.active()).isTrue();
         assertThat(first.sortOrder()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("API 13 listItems: 그 정비소 항목 전부(비활성 포함)를 sortOrder 순으로, 남의 정비소 항목은 없다 (X7)")
+    void listItems_allOfShop_sortedAndScoped() {
+        List<ItemListResponse> result = itemService.listItems(shopA);
+
+        assertThat(result).extracting(ItemListResponse::itemId).containsExactly(oil, filter, retired);
+        assertThat(result.get(2).active()).isFalse();
+        assertThat(itemService.listItems(shopB)).extracting(ItemListResponse::itemId).containsExactly(otherShopItem);
     }
 
     @Test

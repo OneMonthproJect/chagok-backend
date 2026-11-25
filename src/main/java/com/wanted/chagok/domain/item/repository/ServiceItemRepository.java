@@ -10,6 +10,9 @@ public interface ServiceItemRepository extends JpaRepository<ServiceItem, Long> 
 
     List<ServiceItem> findByShopIdAndActiveTrueOrderBySortOrderAscIdAsc(long shopId);
 
+    /** API 13: 그 정비소의 항목 전부(비활성 포함), {@code sortOrder} 순. */
+    List<ServiceItem> findByShopIdOrderBySortOrderAscIdAsc(long shopId);
+
     /** 비활성 포함. 없거나 다른 정비소 항목은 결과에 없다. */
     List<ServiceItem> findByShopIdAndIdIn(long shopId, Collection<Long> ids);
 }

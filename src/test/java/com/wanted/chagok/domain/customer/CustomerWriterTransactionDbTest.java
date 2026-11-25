@@ -34,6 +34,9 @@ class CustomerWriterTransactionDbTest {
     private CustomerWriter writer;
 
     @Autowired
+    private com.wanted.chagok.domain.customer.api.CustomerReader reader;
+
+    @Autowired
     private JdbcTemplate jdbc;
 
     @Autowired
@@ -44,6 +47,7 @@ class CustomerWriterTransactionDbTest {
 
     @BeforeEach
     void data() {
+        // INSERT와 LAST_INSERT_ID()는 같은 연결이어야 하므로 한 트랜잭션(한 연결)으로 묶는다.
         tx.executeWithoutResult(status -> {
             jdbc.update("INSERT INTO shop (name, phone, status, created_at) VALUES ('트랜잭션시험정비소', '02-900-0001', 'ACTIVE', NOW())");
             shop = jdbc.queryForObject("SELECT LAST_INSERT_ID()", Long.class);
@@ -90,36 +94,23 @@ class CustomerWriterTransactionDbTest {
     }
 
     @Test
-    @DisplayName("동시 방문: 두 번째 조회는 첫 방문이 커밋될 때까지 대기하고 더 낮은 주행거리로 덮어쓰지 않는다")
-    void concurrentVisitKeepsHigherMileage() throws Exception {
-        var secondStarted = new CountDownLatch(1);
-        var pool = Executors.newSingleThreadExecutor();
-        try {
-            var second = tx.execute(status -> {
-                writer.getOwnedVehicleForVisit(shop, vehicle);
-                var waiting = pool.submit(() -> tx.execute(other -> {
-                    secondStarted.countDown();
-                    var before = writer.getOwnedVehicleForVisit(shop, vehicle);
-                    writer.applyVisit(shop, vehicle, 2020, 55_000);
-                    return before;
-                }));
-                try {
-                    assertThat(secondStarted.await(5, TimeUnit.SECONDS)).isTrue();
-                    assertThatThrownBy(() -> waiting.get(1, TimeUnit.SECONDS)).isInstanceOf(TimeoutException.class);
-                } catch (InterruptedException ex) {
-                    Thread.currentThread().interrupt();
-                    throw new AssertionError(ex);
-                }
-                writer.applyVisit(shop, vehicle, 2019, 80_000);
-                return waiting;
-            });
+    @DisplayName("동시 저장: 먼저 읽어 둔 차량 값이 낡았어도(다른 저장이 더 큰 주행거리를 커밋) 최근 주행거리가 낮아지지 않는다")
+    void staleReadDoesNotLowerMileage() {
+        tx.executeWithoutResult(status -> {
+            reader.getOwnedVehicle(shop, vehicle); // saveVisit처럼 차량을 먼저 읽어 영속성 컨텍스트에 올린다 (주행거리 없음)
+            // 다른 방문 저장이 그사이 60,000을 커밋한 것을 흉내: 별도 트랜잭션(REQUIRES_NEW)으로 커밋한다.
+            new TransactionTemplate(tx.getTransactionManager(), requiresNew()).executeWithoutResult(
+                other -> jdbc.update("UPDATE vehicle SET latest_mileage = 60000 WHERE id = ?", vehicle));
+            writer.applyVisit(shop, vehicle, null, 50_000);
+        });
 
-            assertThat(second.get(10, TimeUnit.SECONDS).latestMileage()).isEqualTo(80_000);
-            assertThat(row()).containsEntry("model_year", 2019).containsEntry("latest_mileage", 80_000);
-        } finally {
-            pool.shutdownNow();
-            assertThat(pool.awaitTermination(10, TimeUnit.SECONDS)).isTrue();
-        }
+        assertThat(row()).containsEntry("latest_mileage", 60_000);
+    }
+
+    private static org.springframework.transaction.support.DefaultTransactionDefinition requiresNew() {
+        var definition = new org.springframework.transaction.support.DefaultTransactionDefinition();
+        definition.setPropagationBehavior(org.springframework.transaction.TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+        return definition;
     }
 
     private Map<String, Object> row() {

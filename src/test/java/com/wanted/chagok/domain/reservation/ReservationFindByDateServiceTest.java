@@ -101,8 +101,8 @@ class ReservationFindByDateServiceTest {
     }
 
     @Test
-    @DisplayName("목록은 취소 예약을 유지하고 건수는 취소만 제외한다 — 완료 예약도 센다")
-    void countExcludesOnlyCanceled() {
+    @DisplayName("건수는 취소를 뺀다 — 끝난(COMPLETED)·예약(RESERVED)은 세고, 취소(CANCELED)는 목록에만 있고 세지 않는다")
+    void countExcludesCancelledButListKeepsThem() {
         when(repository.findInPeriod(anyLong(), any(), any()))
             .thenReturn(List.of(
                 reservation(1, 4, LocalDateTime.of(2026, 11, 24, 10, 0), ReservationStatus.COMPLETED, false, null),
@@ -115,8 +115,9 @@ class ReservationFindByDateServiceTest {
         ReservationDay day = service().findByDate(SHOP, DAY);
 
         assertThat(day.countExcludingCancelled()).isEqualTo(2);
+        assertThat(day.reservations()).hasSize(3);
         assertThat(day.reservations()).extracting("status").containsExactly("COMPLETED", "RESERVED", "CANCELED");
-        // 끝난 예약은 시각이 지나도 "처리 필요"가 아니고, 아직 안 지난 16:00 RESERVED도 아니다
+        // 끝난 예약은 시각이 지나도 "처리 필요"가 아니고, 아직 안 지난 16:00 RESERVED·취소도 아니다
         assertThat(day.reservations()).extracting("needsAction").containsExactly(false, false, false);
     }
 

@@ -87,7 +87,7 @@ public class ReservationService implements ReservationReader {
 
     /**
      * 홈의 오늘 예약(API 04)용 하루치 조회. 목록은 15번(기간 조회)의 조립을 그대로 쓴다(같은 모양, 같은 N+1 방지).
-     * 건수는 취소를 뺀다(D-63 B05).
+     * 목록은 취소를 포함하고, 건수만 취소를 뺀다(D-63 B05). 방문 완료는 건수에 포함한다.
      */
     // LIMIT: 정비소·하루 예약 수십 건 이하 가정(08 15번과 같다, 쪽 나누기 없음) / 넘으면 쪽 나누기를 다시 정한다
     @Override
@@ -99,8 +99,8 @@ public class ReservationService implements ReservationReader {
                 i.version(), i.vehicleId(), i.plateNumber(), i.customerId(), i.customerName(), i.phone(),
                 i.purposeSummary()))
             .toList();
-        int count = (int) items.stream().filter(i -> i.status() != ReservationStatus.CANCELED).count();
-        return new ReservationDay(count, reservations);
+        int active = (int) reservations.stream().filter(r -> !ReservationStatus.CANCELED.name().equals(r.status())).count();
+        return new ReservationDay(active, reservations);
     }
 
     /** 예약 상세 패널(API 17)용 한 건 조회. 소속 확인은 {@link #getOwned} 한 곳, "처리 필요"는 Entity가 판정한다(D-23). */

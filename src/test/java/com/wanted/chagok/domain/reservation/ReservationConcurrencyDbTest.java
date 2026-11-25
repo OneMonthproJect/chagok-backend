@@ -11,6 +11,7 @@ import com.wanted.chagok.domain.reservation.repository.ReservationRepository;
 import com.wanted.chagok.global.auth.TestJwts;
 import com.wanted.chagok.global.config.ClockConfig;
 import java.nio.charset.StandardCharsets;
+import java.sql.PreparedStatement;
 import java.sql.Statement;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -36,6 +37,7 @@ import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.support.GeneratedKeyHolder;
+import org.springframework.jdbc.support.KeyHolder;
 import org.springframework.test.web.servlet.MockMvc;
 
 /**
@@ -82,10 +84,10 @@ class ReservationConcurrencyDbTest {
 
     @BeforeEach
     void data() {
-        shopId = insertReturningId("INSERT INTO shop (name, phone, created_at) VALUES (?, ?, ?)", "동시성테스트" + suffix, "02-000-0000", LocalDateTime.now());
-        staffId = insertReturningId("INSERT INTO staff (shop_id, login_id, password_hash, name, role, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+        shopId = insertAndGetId("INSERT INTO shop (name, phone, created_at) VALUES (?, ?, ?)", "동시성테스트" + suffix, "02-000-0000", LocalDateTime.now());
+        staffId = insertAndGetId("INSERT INTO staff (shop_id, login_id, password_hash, name, role, created_at) VALUES (?, ?, ?, ?, ?, ?)",
             shopId, "t_cc_" + suffix, "x", "직원", "OWNER", LocalDateTime.now());
-        customerId = insertReturningId("INSERT INTO customer (shop_id, name, phone, consent, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
+        customerId = insertAndGetId("INSERT INTO customer (shop_id, name, phone, consent, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
             shopId, "동시성고객", "010-0000-0000", true, LocalDateTime.now(), LocalDateTime.now());
         itemOld = insertItem("OLD_ITEM", 1);
         itemX = insertItem("ITEM_X", 2);
@@ -193,7 +195,7 @@ class ReservationConcurrencyDbTest {
 
     /** 라운드마다 새 차량·새 예약(커밋됨). 시각은 앱과 같은 방식(Hibernate)으로 저장한다. */
     private long newReservation(boolean withOldItem) {
-        long vehicleId = insertReturningId("INSERT INTO vehicle (shop_id, customer_id, plate_number, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
+        long vehicleId = insertAndGetId("INSERT INTO vehicle (shop_id, customer_id, plate_number, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
             shopId, customerId, "CC" + suffix + (++vehicleSeq), LocalDateTime.now(), LocalDateTime.now());
         long id = reservations.saveAndFlush(
             Reservation.register(shopId, vehicleId, today.plusDays(8).atTime(10, 0), false, null, staffId)).getId();
@@ -210,19 +212,20 @@ class ReservationConcurrencyDbTest {
     }
 
     private long insertItem(String code, int sortOrder) {
-        return insertReturningId("INSERT INTO service_item (shop_id, code, name, cycle_months, cycle_km, active, sort_order, created_at) "
+        return insertAndGetId("INSERT INTO service_item (shop_id, code, name, cycle_months, cycle_km, active, sort_order, created_at) "
             + "VALUES (?, ?, ?, ?, ?, ?, ?, ?)", shopId, code, code, 6, 10_000, true, sortOrder, LocalDateTime.now());
     }
 
-    private long insertReturningId(String sql, Object... args) {
-        var key = new GeneratedKeyHolder();
-        jdbc.update(connection -> {
-            var statement = connection.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS);
+    /** INSERT와 같은 호출에서 생성 키를 받는다. {@code LAST_INSERT_ID()}는 연결마다 따로라 별도 호출로 읽으면 다른 연결을 만날 수 있다. */
+    private long insertAndGetId(String sql, Object... args) {
+        KeyHolder keys = new GeneratedKeyHolder();
+        jdbc.update(con -> {
+            PreparedStatement ps = con.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS);
             for (int i = 0; i < args.length; i++) {
-                statement.setObject(i + 1, args[i]);
+                ps.setObject(i + 1, args[i]);
             }
-            return statement;
-        }, key);
-        return key.getKey().longValue();
+            return ps;
+        }, keys);
+        return keys.getKey().longValue();
     }
 }

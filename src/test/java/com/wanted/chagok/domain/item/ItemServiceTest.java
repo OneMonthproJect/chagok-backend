@@ -9,6 +9,7 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.wanted.chagok.domain.item.api.ItemRef;
+import com.wanted.chagok.domain.item.dto.ItemListResponse;
 import com.wanted.chagok.domain.item.entity.ServiceItem;
 import com.wanted.chagok.domain.item.repository.ServiceItemRepository;
 import com.wanted.chagok.domain.item.service.ItemService;
@@ -106,6 +107,18 @@ class ItemServiceTest {
         when(repository.findByShopIdAndIdIn(anyLong(), any())).thenReturn(List.of(item(1, true), item(2, true)));
 
         service().requireActiveItems(SHOP, List.of(1L, 2L, 2L), "purpose.itemIds");
+    }
+
+    @Test
+    @DisplayName("listItems: shopId로 조회한 순서 그대로 08 13 한 줄(ItemListResponse)로 바꾼다")
+    void listItems_mapsToResponse() {
+        when(repository.findByShopIdOrderBySortOrderAscIdAsc(SHOP)).thenReturn(List.of(item(1, true), item(2, false)));
+
+        List<ItemListResponse> result = service().listItems(SHOP);
+
+        assertThat(result).extracting(ItemListResponse::itemId).containsExactly(1L, 2L);
+        assertThat(result.get(0)).isEqualTo(new ItemListResponse(1, "CODE_1", "항목1", 6, 10_000, true, 1));
+        assertThat(result.get(1).active()).isFalse();
     }
 
     @Test

@@ -2,11 +2,13 @@ package com.wanted.chagok.domain.reservation.controller;
 
 import com.wanted.chagok.domain.reservation.dto.ReservationCompleteRequest;
 import com.wanted.chagok.domain.reservation.dto.ReservationResponse;
+import com.wanted.chagok.domain.reservation.dto.ReservationUpdateRequest;
 import com.wanted.chagok.domain.reservation.service.ReservationService;
 import com.wanted.chagok.global.auth.CurrentStaff;
 import com.wanted.chagok.global.auth.LoginStaff;
 import com.wanted.chagok.global.response.ApiResponse;
 import jakarta.validation.Valid;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -14,7 +16,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * 예약 상태·일시를 바꾸는 API. 지금은 18 방문 완료만 있고, 19 변경은 item 계약(예약 목적 항목 검증)이 머지된 뒤에 더한다.
+ * 예약 상태·일시를 바꾸는 API: 18 방문 완료, 19 변경.
  * 요청 받기·검증·응답 변환만 하고 업무 판단은 service·Entity가 한다 (CONVENTIONS 5장).
  * 사장·정비사 모두 가능하며 권한은 {@code SecurityConfig}의 {@code /api/**} 규칙이 한 곳에서 본다.
  */
@@ -34,5 +36,16 @@ public class ReservationActionController {
                                                      @PathVariable long reservationId,
                                                      @Valid @RequestBody ReservationCompleteRequest request) {
         return ApiResponse.ok(reservationService.complete(staff.shopId(), reservationId, request.version()));
+    }
+
+    /**
+     * API 19 — 예약 변경. 보낸 필드만 바꾸고(일시·예약 목적), 바꿀 필드가 없으면 400이다. 고객·차량은 바꿀 수 없다.
+     * 담당 재배정(assigneeId)은 P0-나머지라 읽지 않는다.
+     */
+    @PatchMapping("/{reservationId}")
+    public ApiResponse<ReservationResponse> update(@CurrentStaff LoginStaff staff,
+                                                   @PathVariable long reservationId,
+                                                   @Valid @RequestBody ReservationUpdateRequest request) {
+        return ApiResponse.ok(reservationService.update(staff.shopId(), reservationId, request));
     }
 }

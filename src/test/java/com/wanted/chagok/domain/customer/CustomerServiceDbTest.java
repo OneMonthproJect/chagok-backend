@@ -188,7 +188,57 @@ class CustomerServiceDbTest {
 
         assertThat(result).containsOnlyKeys(a.vehicleId(), b.vehicleId());
         assertThat(result.get(a.vehicleId())).isEqualTo(
-            new VehicleSummary(a.vehicleId(), "12가0001", a.customerId(), "김민수", "010-0000-0001"));
+            new VehicleSummary(a.vehicleId(), "12가0001", a.customerId(), "김민수", "010-0000-0001", false));
         assertThat(reader.findVehicleSummaries(shopA, List.of())).isEmpty();
+    }
+
+    @Test
+    @DisplayName("계약 findConsentedVehicles: 동의 고객의 차량만(미동의 제외), 한 고객의 차량이 여럿이면 모두, id 오름차순, 다른 정비소는 섞이지 않는다")
+    void reader_consentedVehicles() {
+        register(shopA, "김미동의", "010-0000-0001", "12가0001");
+        CustomerCreateResponse agreed = service.register(shopA, new CustomerCreateRequest("이동의", "010-0000-0002", true,
+            new VehicleInput("34나0002", "쏘나타", 2018, null)));
+        CustomerCreateResponse agreed2 = service.register(shopA, new CustomerCreateRequest("박동의", "010-0000-0003", true,
+            new VehicleInput("78라0004", "K5", 2020, null)));
+        // 이동의의 둘째 차량을 박동의 등록 뒤에 추가한다 — 고객 순서와 차량 id 순서가 어긋나야 정렬(order by v.id)이 증명된다
+        service.addVehicle(shopA, agreed.customerId(), new VehicleInput("56다0003", "그랜저", 2017, null));
+        service.register(shopB, new CustomerCreateRequest("최타사", "010-0000-0004", true,
+            new VehicleInput("90마0005", "투싼", 2016, null)));
+
+        List<VehicleSummary> result = reader.findConsentedVehicles(shopA);
+
+        // 미동의(12가0001)와 다른 정비소(90마0005)는 없고, 동의 고객의 차량 3대가 고객이 아니라 차량 id 순으로 나온다
+        assertThat(result).extracting(VehicleSummary::plateNumber).containsExactly("34나0002", "78라0004", "56다0003");
+        assertThat(result).extracting(VehicleSummary::vehicleId).isSorted();
+        assertThat(result).allSatisfy(v -> assertThat(v.consent()).isTrue());
+        assertThat(result).extracting(VehicleSummary::customerId)
+            .containsExactly(agreed.customerId(), agreed2.customerId(), agreed.customerId());
+        assertThat(result.get(0).customerName()).isEqualTo("이동의");
+        assertThat(result.get(0).phone()).isEqualTo("010-0000-0002");
+    }
+
+    @Test
+    @DisplayName("계약 findConsentedVehicles: 동의 고객이 없는 정비소는 빈 목록, 다른 정비소의 동의 고객은 보이지 않는다")
+    void reader_consentedVehiclesEmptyAndIsolation() {
+        register(shopA, "김미동의", "010-0000-0001", "12가0001");
+        service.register(shopB, new CustomerCreateRequest("최타사", "010-0000-0004", true,
+            new VehicleInput("90마0005", "투싼", 2016, null)));
+
+        assertThat(reader.findConsentedVehicles(shopA)).isEmpty();
+        assertThat(reader.findConsentedVehicles(shopB)).extracting(VehicleSummary::plateNumber).containsExactly("90마0005");
+    }
+
+    @Test
+    @DisplayName("계약 findVehicleSummaries의 consent: 등록 때 정한 동의 여부(true·false)가 그대로 읽힌다 (08 17번 customer.consent)")
+    void reader_vehicleSummariesConsent() {
+        CustomerCreateResponse declined = register(shopA, "김민수", "010-0000-0001", "12가0001");
+        CustomerCreateResponse agreed = service.register(shopA, new CustomerCreateRequest("이서연", "010-0000-0002", true,
+            new VehicleInput("34나0002", "쏘나타", 2018, null)));
+
+        Map<Long, VehicleSummary> result = reader.findVehicleSummaries(shopA,
+            List.of(declined.vehicleId(), agreed.vehicleId()));
+
+        assertThat(result.get(declined.vehicleId()).consent()).isFalse();
+        assertThat(result.get(agreed.vehicleId()).consent()).isTrue();
     }
 }

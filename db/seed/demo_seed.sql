@@ -2,13 +2,13 @@
 --
 -- 직접 실행하지 않는다. db/seed/run-demo-seed.sh 로만 실행한다 (DB 이름 _demo, Flyway 적용, shop 비어 있음 확인).
 -- 원본: chagok-docs docs/07_data_ERD_DB설계서.md 7장 (7.1 정비소·계정, 7.2 A 고객·차량, 7.3 A 예약, 7.4 B, 7.5 기대값)
--- 구조: V1__init.sql (chagok-backend#5). 이 파일은 테이블·칼럼을 만들지 않는다.
+-- 구조: V1__init.sql (chagok-backend#5) + V2__p0_remaining.sql (chagok-backend#31). 이 파일은 테이블·칼럼을 만들지 않는다.
 -- 규칙: db/seed/README.md
 --   - DELETE·TRUNCATE·DROP·ALTER·CREATE·UPDATE 문장 없음. 다시 넣으려면 시연 DB를 새로 만든다
 --   - 날짜는 모두 오늘(CURDATE()) 기준 상대값. created_at·updated_at 은 DB 기본값이 없으므로 모든 행에 직접 넣는다
 --   - 시연 계정 비밀번호는 BCrypt 해시로만 넣는다 (평문 없음). password_change_required = FALSE
 --   - 상태(미확인/여유/임박/도래)는 저장하지 않는다. 기록 날짜로 결과가 나온다
---   - V1 기준이다. 점검 결과("주의")·진행중 예약은 V2 이후 시드에서 더한다 (07 7.2·7.3)
+--   - V2 칼럼 중 maintenance_record.updated_at 만 채운다 (created_at 과 같은 값). 점검 결과("주의")·진행중 예약은 아직 넣지 않는다 (07 7.2·7.3)
 --
 -- id 순서: 빈 DB에 이 순서로 넣으면 08 JSON 예시의 id와 같다
 --   shop 1 차곡카센터(A) · 2 바른카센터(B) / staff 1 owner_a · 2 mech_a · 3 owner_b
@@ -189,77 +189,77 @@ SET @v_b_12ga = LAST_INSERT_ID();
 -- ---------------------------------------------------------------------
 -- 12가0001: 엔진오일 교체 D-6M-7d (40,000km), 엔진오일 점검 D-2M → 엔진오일 도래
 SET @d = @today - INTERVAL 6 MONTH - INTERVAL 7 DAY;
-INSERT INTO maintenance_record (shop_id, vehicle_id, service_item_id, visit_key, record_date, mileage, record_type, source, staff_id, memo, created_at)
-VALUES (@shop_a, @v_12ga, @a_engine_oil, '5eed0000-0000-4000-8000-000000000001', @d, 40000, 'REPLACE', 'SHOP', @mech_a, NULL, TIMESTAMP(@d, '11:00:00'));
+INSERT INTO maintenance_record (shop_id, vehicle_id, service_item_id, visit_key, record_date, mileage, record_type, source, staff_id, memo, created_at, updated_at)
+VALUES (@shop_a, @v_12ga, @a_engine_oil, '5eed0000-0000-4000-8000-000000000001', @d, 40000, 'REPLACE', 'SHOP', @mech_a, NULL, TIMESTAMP(@d, '11:00:00'), TIMESTAMP(@d, '11:00:00'));
 SET @d = @today - INTERVAL 2 MONTH;
-INSERT INTO maintenance_record (shop_id, vehicle_id, service_item_id, visit_key, record_date, mileage, record_type, source, staff_id, memo, created_at)
-VALUES (@shop_a, @v_12ga, @a_engine_oil, '5eed0000-0000-4000-8000-000000000002', @d, NULL, 'INSPECT', 'SHOP', @mech_a, NULL, TIMESTAMP(@d, '11:00:00'));
+INSERT INTO maintenance_record (shop_id, vehicle_id, service_item_id, visit_key, record_date, mileage, record_type, source, staff_id, memo, created_at, updated_at)
+VALUES (@shop_a, @v_12ga, @a_engine_oil, '5eed0000-0000-4000-8000-000000000002', @d, NULL, 'INSPECT', 'SHOP', @mech_a, NULL, TIMESTAMP(@d, '11:00:00'), TIMESTAMP(@d, '11:00:00'));
 
 -- 34나0002: 엔진오일 교체 D-6M-10d → 엔진오일 도래 (D+2일 예약 있음)
 SET @d = @today - INTERVAL 6 MONTH - INTERVAL 10 DAY;
-INSERT INTO maintenance_record (shop_id, vehicle_id, service_item_id, visit_key, record_date, mileage, record_type, source, staff_id, memo, created_at)
-VALUES (@shop_a, @v_34na, @a_engine_oil, '5eed0000-0000-4000-8000-000000000003', @d, NULL, 'REPLACE', 'SHOP', @mech_a, NULL, TIMESTAMP(@d, '11:00:00'));
+INSERT INTO maintenance_record (shop_id, vehicle_id, service_item_id, visit_key, record_date, mileage, record_type, source, staff_id, memo, created_at, updated_at)
+VALUES (@shop_a, @v_34na, @a_engine_oil, '5eed0000-0000-4000-8000-000000000003', @d, NULL, 'REPLACE', 'SHOP', @mech_a, NULL, TIMESTAMP(@d, '11:00:00'), TIMESTAMP(@d, '11:00:00'));
 
 -- 56다0003: 브레이크패드 교체 D-12M+20d → 브레이크패드 임박 (다음 정비일 D+20일)
 SET @d = @today - INTERVAL 12 MONTH + INTERVAL 20 DAY;
-INSERT INTO maintenance_record (shop_id, vehicle_id, service_item_id, visit_key, record_date, mileage, record_type, source, staff_id, memo, created_at)
-VALUES (@shop_a, @v_56da, @a_brake_pad, '5eed0000-0000-4000-8000-000000000004', @d, NULL, 'REPLACE', 'SHOP', @mech_a, NULL, TIMESTAMP(@d, '11:00:00'));
+INSERT INTO maintenance_record (shop_id, vehicle_id, service_item_id, visit_key, record_date, mileage, record_type, source, staff_id, memo, created_at, updated_at)
+VALUES (@shop_a, @v_56da, @a_brake_pad, '5eed0000-0000-4000-8000-000000000004', @d, NULL, 'REPLACE', 'SHOP', @mech_a, NULL, TIMESTAMP(@d, '11:00:00'), TIMESTAMP(@d, '11:00:00'));
 
 -- 78라0004: 엔진오일 교체 D-2M (45,000km) → 엔진오일 여유. 시나리오 B: 방문 주행거리 55,000 입력 → 도래 (T8)
 SET @d = @today - INTERVAL 2 MONTH;
-INSERT INTO maintenance_record (shop_id, vehicle_id, service_item_id, visit_key, record_date, mileage, record_type, source, staff_id, memo, created_at)
-VALUES (@shop_a, @v_78ra, @a_engine_oil, '5eed0000-0000-4000-8000-000000000005', @d, 45000, 'REPLACE', 'SHOP', @mech_a, NULL, TIMESTAMP(@d, '11:00:00'));
+INSERT INTO maintenance_record (shop_id, vehicle_id, service_item_id, visit_key, record_date, mileage, record_type, source, staff_id, memo, created_at, updated_at)
+VALUES (@shop_a, @v_78ra, @a_engine_oil, '5eed0000-0000-4000-8000-000000000005', @d, 45000, 'REPLACE', 'SHOP', @mech_a, NULL, TIMESTAMP(@d, '11:00:00'), TIMESTAMP(@d, '11:00:00'));
 
 -- 90마0005: 기록 없음 → 전부 미확인 (T1)
 
 -- 11바0006: 엔진오일 교체 D-8M, 엔진오일 거절 D-1M → 엔진오일 도래 (거절은 주기를 다시 시작하지 않음)
 SET @d = @today - INTERVAL 8 MONTH;
-INSERT INTO maintenance_record (shop_id, vehicle_id, service_item_id, visit_key, record_date, mileage, record_type, source, staff_id, memo, created_at)
-VALUES (@shop_a, @v_11ba, @a_engine_oil, '5eed0000-0000-4000-8000-000000000006', @d, NULL, 'REPLACE', 'SHOP', @mech_a, NULL, TIMESTAMP(@d, '11:00:00'));
+INSERT INTO maintenance_record (shop_id, vehicle_id, service_item_id, visit_key, record_date, mileage, record_type, source, staff_id, memo, created_at, updated_at)
+VALUES (@shop_a, @v_11ba, @a_engine_oil, '5eed0000-0000-4000-8000-000000000006', @d, NULL, 'REPLACE', 'SHOP', @mech_a, NULL, TIMESTAMP(@d, '11:00:00'), TIMESTAMP(@d, '11:00:00'));
 SET @d = @today - INTERVAL 1 MONTH;
-INSERT INTO maintenance_record (shop_id, vehicle_id, service_item_id, visit_key, record_date, mileage, record_type, source, staff_id, memo, created_at)
-VALUES (@shop_a, @v_11ba, @a_engine_oil, '5eed0000-0000-4000-8000-000000000007', @d, NULL, 'DECLINE', 'SHOP', @mech_a, NULL, TIMESTAMP(@d, '11:00:00'));
+INSERT INTO maintenance_record (shop_id, vehicle_id, service_item_id, visit_key, record_date, mileage, record_type, source, staff_id, memo, created_at, updated_at)
+VALUES (@shop_a, @v_11ba, @a_engine_oil, '5eed0000-0000-4000-8000-000000000007', @d, NULL, 'DECLINE', 'SHOP', @mech_a, NULL, TIMESTAMP(@d, '11:00:00'), TIMESTAMP(@d, '11:00:00'));
 
 -- 22사0007: 에어컨필터 교체 D-13M, 에어컨필터 외부 D-1M (고객 진술) → 에어컨필터 여유 (외부로 재시작)
 SET @d = @today - INTERVAL 13 MONTH;
-INSERT INTO maintenance_record (shop_id, vehicle_id, service_item_id, visit_key, record_date, mileage, record_type, source, staff_id, memo, created_at)
-VALUES (@shop_a, @v_22sa, @a_ac_filter, '5eed0000-0000-4000-8000-000000000008', @d, NULL, 'REPLACE', 'SHOP', @mech_a, NULL, TIMESTAMP(@d, '11:00:00'));
+INSERT INTO maintenance_record (shop_id, vehicle_id, service_item_id, visit_key, record_date, mileage, record_type, source, staff_id, memo, created_at, updated_at)
+VALUES (@shop_a, @v_22sa, @a_ac_filter, '5eed0000-0000-4000-8000-000000000008', @d, NULL, 'REPLACE', 'SHOP', @mech_a, NULL, TIMESTAMP(@d, '11:00:00'), TIMESTAMP(@d, '11:00:00'));
 SET @d = @today - INTERVAL 1 MONTH;
-INSERT INTO maintenance_record (shop_id, vehicle_id, service_item_id, visit_key, record_date, mileage, record_type, source, staff_id, memo, created_at)
-VALUES (@shop_a, @v_22sa, @a_ac_filter, '5eed0000-0000-4000-8000-000000000009', @d, NULL, 'EXTERNAL', 'CUSTOMER_STATEMENT', @mech_a, NULL, TIMESTAMP(@d, '11:00:00'));
+INSERT INTO maintenance_record (shop_id, vehicle_id, service_item_id, visit_key, record_date, mileage, record_type, source, staff_id, memo, created_at, updated_at)
+VALUES (@shop_a, @v_22sa, @a_ac_filter, '5eed0000-0000-4000-8000-000000000009', @d, NULL, 'EXTERNAL', 'CUSTOMER_STATEMENT', @mech_a, NULL, TIMESTAMP(@d, '11:00:00'), TIMESTAMP(@d, '11:00:00'));
 
 -- 33아0008: 타이어 교체 D-6M+20d, 타이어 점검 D-2M → 타이어 임박 (점검 결과 "주의"·메모는 V2 이후)
 SET @d = @today - INTERVAL 6 MONTH + INTERVAL 20 DAY;
-INSERT INTO maintenance_record (shop_id, vehicle_id, service_item_id, visit_key, record_date, mileage, record_type, source, staff_id, memo, created_at)
-VALUES (@shop_a, @v_33a, @a_tire, '5eed0000-0000-4000-8000-000000000010', @d, NULL, 'REPLACE', 'SHOP', @mech_a, NULL, TIMESTAMP(@d, '11:00:00'));
+INSERT INTO maintenance_record (shop_id, vehicle_id, service_item_id, visit_key, record_date, mileage, record_type, source, staff_id, memo, created_at, updated_at)
+VALUES (@shop_a, @v_33a, @a_tire, '5eed0000-0000-4000-8000-000000000010', @d, NULL, 'REPLACE', 'SHOP', @mech_a, NULL, TIMESTAMP(@d, '11:00:00'), TIMESTAMP(@d, '11:00:00'));
 SET @d = @today - INTERVAL 2 MONTH;
-INSERT INTO maintenance_record (shop_id, vehicle_id, service_item_id, visit_key, record_date, mileage, record_type, source, staff_id, memo, created_at)
-VALUES (@shop_a, @v_33a, @a_tire, '5eed0000-0000-4000-8000-000000000011', @d, NULL, 'INSPECT', 'SHOP', @mech_a, NULL, TIMESTAMP(@d, '11:00:00'));
+INSERT INTO maintenance_record (shop_id, vehicle_id, service_item_id, visit_key, record_date, mileage, record_type, source, staff_id, memo, created_at, updated_at)
+VALUES (@shop_a, @v_33a, @a_tire, '5eed0000-0000-4000-8000-000000000011', @d, NULL, 'INSPECT', 'SHOP', @mech_a, NULL, TIMESTAMP(@d, '11:00:00'), TIMESTAMP(@d, '11:00:00'));
 
 -- 44자0009: 엔진오일 교체 D-7M → 엔진오일 도래, 동의 N이라 대상 목록에 없음
 SET @d = @today - INTERVAL 7 MONTH;
-INSERT INTO maintenance_record (shop_id, vehicle_id, service_item_id, visit_key, record_date, mileage, record_type, source, staff_id, memo, created_at)
-VALUES (@shop_a, @v_44ja, @a_engine_oil, '5eed0000-0000-4000-8000-000000000012', @d, NULL, 'REPLACE', 'SHOP', @mech_a, NULL, TIMESTAMP(@d, '11:00:00'));
+INSERT INTO maintenance_record (shop_id, vehicle_id, service_item_id, visit_key, record_date, mileage, record_type, source, staff_id, memo, created_at, updated_at)
+VALUES (@shop_a, @v_44ja, @a_engine_oil, '5eed0000-0000-4000-8000-000000000012', @d, NULL, 'REPLACE', 'SHOP', @mech_a, NULL, TIMESTAMP(@d, '11:00:00'), TIMESTAMP(@d, '11:00:00'));
 
 -- 55차0010: 배터리 교체 D-36M+20d, 에어클리너·에어컨필터 교체 D-3M (같은 방문), 엔진오일 교체 D-1M → 배터리 임박, 방문 3회
 SET @d = @today - INTERVAL 36 MONTH + INTERVAL 20 DAY;
-INSERT INTO maintenance_record (shop_id, vehicle_id, service_item_id, visit_key, record_date, mileage, record_type, source, staff_id, memo, created_at)
-VALUES (@shop_a, @v_55cha, @a_battery, '5eed0000-0000-4000-8000-000000000013', @d, NULL, 'REPLACE', 'SHOP', @mech_a, NULL, TIMESTAMP(@d, '11:00:00'));
+INSERT INTO maintenance_record (shop_id, vehicle_id, service_item_id, visit_key, record_date, mileage, record_type, source, staff_id, memo, created_at, updated_at)
+VALUES (@shop_a, @v_55cha, @a_battery, '5eed0000-0000-4000-8000-000000000013', @d, NULL, 'REPLACE', 'SHOP', @mech_a, NULL, TIMESTAMP(@d, '11:00:00'), TIMESTAMP(@d, '11:00:00'));
 SET @d = @today - INTERVAL 3 MONTH;
-INSERT INTO maintenance_record (shop_id, vehicle_id, service_item_id, visit_key, record_date, mileage, record_type, source, staff_id, memo, created_at)
-VALUES (@shop_a, @v_55cha, @a_air_cleaner, '5eed0000-0000-4000-8000-000000000014', @d, NULL, 'REPLACE', 'SHOP', @mech_a, NULL, TIMESTAMP(@d, '11:00:00'));
-INSERT INTO maintenance_record (shop_id, vehicle_id, service_item_id, visit_key, record_date, mileage, record_type, source, staff_id, memo, created_at)
-VALUES (@shop_a, @v_55cha, @a_ac_filter, '5eed0000-0000-4000-8000-000000000014', @d, NULL, 'REPLACE', 'SHOP', @mech_a, NULL, TIMESTAMP(@d, '11:00:00'));
+INSERT INTO maintenance_record (shop_id, vehicle_id, service_item_id, visit_key, record_date, mileage, record_type, source, staff_id, memo, created_at, updated_at)
+VALUES (@shop_a, @v_55cha, @a_air_cleaner, '5eed0000-0000-4000-8000-000000000014', @d, NULL, 'REPLACE', 'SHOP', @mech_a, NULL, TIMESTAMP(@d, '11:00:00'), TIMESTAMP(@d, '11:00:00'));
+INSERT INTO maintenance_record (shop_id, vehicle_id, service_item_id, visit_key, record_date, mileage, record_type, source, staff_id, memo, created_at, updated_at)
+VALUES (@shop_a, @v_55cha, @a_ac_filter, '5eed0000-0000-4000-8000-000000000014', @d, NULL, 'REPLACE', 'SHOP', @mech_a, NULL, TIMESTAMP(@d, '11:00:00'), TIMESTAMP(@d, '11:00:00'));
 SET @d = @today - INTERVAL 1 MONTH;
-INSERT INTO maintenance_record (shop_id, vehicle_id, service_item_id, visit_key, record_date, mileage, record_type, source, staff_id, memo, created_at)
-VALUES (@shop_a, @v_55cha, @a_engine_oil, '5eed0000-0000-4000-8000-000000000015', @d, NULL, 'REPLACE', 'SHOP', @mech_a, NULL, TIMESTAMP(@d, '11:00:00'));
+INSERT INTO maintenance_record (shop_id, vehicle_id, service_item_id, visit_key, record_date, mileage, record_type, source, staff_id, memo, created_at, updated_at)
+VALUES (@shop_a, @v_55cha, @a_engine_oil, '5eed0000-0000-4000-8000-000000000015', @d, NULL, 'REPLACE', 'SHOP', @mech_a, NULL, TIMESTAMP(@d, '11:00:00'), TIMESTAMP(@d, '11:00:00'));
 
 -- 66카0011: 기록 없음 → 전부 미확인
 
 -- B 정비소 12가0001: 엔진오일 교체 D-7M (A에서는 보이지 않아야 함)
 SET @d = @today - INTERVAL 7 MONTH;
-INSERT INTO maintenance_record (shop_id, vehicle_id, service_item_id, visit_key, record_date, mileage, record_type, source, staff_id, memo, created_at)
-VALUES (@shop_b, @v_b_12ga, @b_engine_oil, '5eed0000-0000-4000-8000-000000000016', @d, NULL, 'REPLACE', 'SHOP', @owner_b, NULL, TIMESTAMP(@d, '11:00:00'));
+INSERT INTO maintenance_record (shop_id, vehicle_id, service_item_id, visit_key, record_date, mileage, record_type, source, staff_id, memo, created_at, updated_at)
+VALUES (@shop_b, @v_b_12ga, @b_engine_oil, '5eed0000-0000-4000-8000-000000000016', @d, NULL, 'REPLACE', 'SHOP', @owner_b, NULL, TIMESTAMP(@d, '11:00:00'), TIMESTAMP(@d, '11:00:00'));
 
 -- ---------------------------------------------------------------------
 -- 7.3 A 정비소 예약 4건 (30분 단위·초 00, 상태 RESERVED만 — V1). 담당 = 등록자

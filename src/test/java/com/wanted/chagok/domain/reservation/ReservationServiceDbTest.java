@@ -11,6 +11,8 @@ import com.wanted.chagok.domain.reservation.dto.ReservationListResponse;
 import com.wanted.chagok.domain.reservation.dto.ReservationResponse;
 import com.wanted.chagok.domain.reservation.dto.ReservationUpdateRequest;
 import com.wanted.chagok.domain.reservation.entity.ReservationStatus;
+import com.wanted.chagok.domain.reservation.entity.Reservation;
+import com.wanted.chagok.domain.reservation.repository.ReservationRepository;
 import com.wanted.chagok.domain.reservation.service.ReservationService;
 import com.wanted.chagok.global.config.ClockConfig;
 import com.wanted.chagok.global.error.BusinessException;
@@ -54,6 +56,9 @@ class ReservationServiceDbTest {
 
     @Autowired
     private ReservationReader reader;
+
+    @Autowired
+    private ReservationRepository reservations;
 
     @Autowired
     private JdbcTemplate jdbc;
@@ -248,9 +253,11 @@ class ReservationServiceDbTest {
         assertThat(response.version()).isEqualTo(1);
         assertThat(response.reservedAt()).isEqualTo(newAt);
         assertThat(dbVersion(id)).isEqualTo(1);
-        Map<String, Object> row = jdbc.queryForMap("SELECT reserved_at, purpose_other, purpose_memo FROM reservation WHERE id = ?", id);
-        assertThat(((java.sql.Timestamp) row.get("reserved_at")).toLocalDateTime()).isEqualTo(newAt);
-        assertThat(row.get("purpose_memo")).isEqualTo("메모");
+        // 시각은 앱과 같은 방식(Hibernate, jdbc.time_zone)으로 읽는다. JdbcTemplate은 JVM 시간대로 해석해 9시간 어긋날 수 있다
+        Reservation reloaded = reservations.findById(id).orElseThrow();
+        assertThat(reloaded.getReservedAt()).isEqualTo(newAt);
+        assertThat(reloaded.getPurposeMemo()).isEqualTo("메모");
+        assertThat(reloaded.isPurposeOther()).isTrue();
     }
 
     @Test
@@ -417,10 +424,16 @@ class ReservationServiceDbTest {
         return lastInsertId();
     }
 
+    /**
+     * 시각이 들어가는 예약 행은 앱과 같은 방식(Hibernate)으로 저장한다. JdbcTemplate으로 {@code LocalDateTime}을 넣으면 JVM
+     * 시간대(CI는 UTC)로 해석되어 앱이 읽는 값과 어긋난다. 상태만 바꾸는 UPDATE는 시각과 무관해 JdbcTemplate을 쓴다.
+     */
     private long insertReservation(long shopId, long vehicleId, LocalDateTime at, String status, long staffId) {
-        jdbc.update("INSERT INTO reservation (shop_id, vehicle_id, reserved_at, status, purpose_other, assignee_staff_id, "
-                + "created_by_staff_id, version, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            shopId, vehicleId, at, status, false, staffId, staffId, 0, LocalDateTime.now(), LocalDateTime.now());
-        return lastInsertId();
+        Reservation saved = reservations.saveAndFlush(Reservation.register(shopId, vehicleId, at, false, null, staffId));
+        if (!"RESERVED".equals(status)) {
+            jdbc.update("UPDATE reservation SET status = ? WHERE id = ?", status, saved.getId());
+            em.clear();
+        }
+        return saved.getId();
     }
 }

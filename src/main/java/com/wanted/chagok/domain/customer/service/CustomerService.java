@@ -1,6 +1,7 @@
 package com.wanted.chagok.domain.customer.service;
 
 import com.wanted.chagok.domain.customer.api.CustomerReader;
+import com.wanted.chagok.domain.customer.api.CustomerWriter;
 import com.wanted.chagok.domain.customer.api.VehicleRef;
 import com.wanted.chagok.domain.customer.api.VehicleSummary;
 import com.wanted.chagok.domain.customer.dto.CustomerCreateRequest;
@@ -33,9 +34,10 @@ import org.springframework.transaction.annotation.Transactional;
  */
 @Service
 @Transactional(readOnly = true)
-public class CustomerService implements CustomerReader {
+public class CustomerService implements CustomerReader, CustomerWriter {
 
     private static final int MIN_MODEL_YEAR = 1980;
+    private static final int MAX_MILEAGE = 2_000_000;
 
     private final CustomerRepository customers;
     private final VehicleRepository vehicles;
@@ -108,6 +110,28 @@ public class CustomerService implements CustomerReader {
         }
         return new HashMap<>(vehicles.findSummaries(shopId, vehicleIds).stream()
             .collect(Collectors.toMap(VehicleSummary::vehicleId, Function.identity())));
+    }
+
+    /**
+     * 방문·정비 기록 저장 때 차량의 연식·최근 주행거리를 반영한다 (규칙은 {@link CustomerWriter#applyVisit}).
+     * 읽기 전용 클래스 설정을 덮어쓰고, 호출한 쪽(maintenance)의 트랜잭션에 참여한다.
+     */
+    @Override
+    @Transactional
+    public void applyVisit(long shopId, long vehicleId, Integer modelYear, Integer mileage) {
+        Vehicle vehicle = vehicles.findByIdAndShopId(vehicleId, shopId)
+            .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND));
+        // 연식 상한 검사는 register와 같은 규칙이다. register는 #24가 같은 줄을 고치고 있어 이 PR에서는 건드리지 않았다.
+        // #24 머지 뒤 한 헬퍼로 합친다(하한 1980은 DTO @Min과 여기서 모두 확인).
+        int maxYear = LocalDate.now(clock).getYear() + 1;
+        if (modelYear != null && (modelYear < MIN_MODEL_YEAR || modelYear > maxYear)) {
+            throw BusinessException.invalidField("vehicle.modelYear",
+                MIN_MODEL_YEAR + "년부터 " + maxYear + "년까지 입력할 수 있습니다.");
+        }
+        if (mileage != null && (mileage < 0 || mileage > MAX_MILEAGE)) {
+            throw BusinessException.invalidField("mileage", "0 이상 2,000,000 이하로 입력해 주세요.");
+        }
+        vehicle.applyVisit(modelYear, mileage);
     }
 
     /** LIKE 특수문자({@code % _ !})를 {@code !}로 이스케이프해 검색어를 글자 그대로 찾는다. */

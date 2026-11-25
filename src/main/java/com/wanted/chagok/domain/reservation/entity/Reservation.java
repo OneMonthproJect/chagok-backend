@@ -100,23 +100,50 @@ public class Reservation {
     }
 
     /**
-     * 방문 완료 (08 18번, 04 F-RSV-04). 시각 전·후 모두 가능하다.
-     *
-     * <p>순서가 정해져 있다: 지금 상태가 허용 상태인지({@code RESERVED}만, 아니면 409 {@code INVALID_STATUS_TRANSITION}) →
-     * 요청 {@code version}과 DB 값 직접 비교(아니면 409 {@code CONCURRENT_MODIFICATION}) → 전이.
+     * 상태·일시를 바꿀 수 있는 예약인지 확인한다 (08 18·19번 공통 순서). 지금 상태가 {@code RESERVED}가 아니면
+     * 409 {@code INVALID_STATUS_TRANSITION}, 요청 {@code version}이 DB 값과 다르면 409 {@code CONCURRENT_MODIFICATION}.
      * 상태 확인이 먼저라서 다른 직원이 이미 끝낸 예약에 낡은 {@code version}으로 보내면 상태 오류가 난다(R10).
-     * 비교한 뒤 저장 사이의 충돌은 {@code @Version}이 잡는다(R10 둘째 경우).
+     * 비교한 뒤 저장 사이의 충돌은 {@code @Version}이 잡는다.
      *
      * @param expectedVersion 화면이 읽은 예약의 {@code version}
      */
-    public void complete(int expectedVersion) {
+    public void assertChangeable(int expectedVersion) {
         if (status != ReservationStatus.RESERVED) {
             throw new BusinessException(ErrorCode.INVALID_STATUS_TRANSITION);
         }
         if (version == null || version != expectedVersion) {
             throw new BusinessException(ErrorCode.CONCURRENT_MODIFICATION);
         }
+    }
+
+    /** 방문 완료 (08 18번, 04 F-RSV-04). 시각 전·후 모두 가능하다. 확인 순서는 {@link #assertChangeable}. */
+    public void complete(int expectedVersion) {
+        assertChangeable(expectedVersion);
         this.status = ReservationStatus.COMPLETED;
+    }
+
+    /**
+     * 예약 변경 (08 19번, D-42): 값이 있는 것만 바꾼다. 고객·차량은 바꿀 수 없어 인자에 없다. 입력 검증(30분 단위·날짜·항목)과
+     * {@link #assertChangeable}는 호출하는 쪽이 먼저 했다는 전제다(상태 규칙은 그 한 곳에만 둔다).
+     *
+     * @param now          호출하는 쪽이 {@code Clock}에서 꺼내 넘긴다(Entity는 시각을 직접 읽지 않는다). 수정 시각에 쓴다
+     * @param reservedAt   null이면 그대로
+     * @param purposeOther null이면 그대로
+     * @param purposeMemo  null이면 그대로(비우려면 빈 문자열)
+     */
+    public void change(LocalDateTime now, LocalDateTime reservedAt, Boolean purposeOther, String purposeMemo) {
+        // 예약 목적 항목만 바뀌면 이 행의 칼럼은 그대로라 @Version이 오르지 않는다(R11). 그래서 수정 시각을 항상 앞으로 밀어
+        // 행을 확실히 "바뀐 것"으로 만든다 — 08 19번이 허용한 updated_at 갱신 방식. 같은 초에 겹쳐도 한 칸 앞으로 둔다.
+        this.updatedAt = updatedAt != null && !now.isAfter(updatedAt) ? updatedAt.plusSeconds(1) : now;
+        if (reservedAt != null) {
+            this.reservedAt = reservedAt;
+        }
+        if (purposeOther != null) {
+            this.purposeOther = purposeOther;
+        }
+        if (purposeMemo != null) {
+            this.purposeMemo = purposeMemo.isEmpty() ? null : purposeMemo;
+        }
     }
 
     /**

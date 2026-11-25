@@ -19,6 +19,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 class ReservationTest {
 
     private static final LocalDateTime AT = LocalDateTime.of(2026, 11, 27, 11, 30);
+    private static final LocalDateTime NOW = LocalDateTime.of(2026, 11, 24, 15, 0);
 
     /** DB에서 읽어 온 것처럼 version·상태를 맞춘 예약 (저장 전에는 version이 null). */
     private static Reservation loaded(ReservationStatus status, int version) {
@@ -110,5 +111,49 @@ class ReservationTest {
         assertThat(loaded(ReservationStatus.RESERVED, 0).needsAction(LocalDateTime.of(2026, 11, 27, 9, 0))).isFalse();
         assertThat(loaded(ReservationStatus.COMPLETED, 1).needsAction(LocalDateTime.of(2026, 11, 28, 9, 0))).isFalse();
         assertThat(loaded(ReservationStatus.CANCELED, 1).needsAction(LocalDateTime.of(2026, 11, 28, 9, 0))).isFalse();
+    }
+
+    @Test
+    @DisplayName("assertChangeable: RESERVED만, 상태가 먼저, 그다음 version (08 18·19번 공통 순서)")
+    void assertChangeableOrder() {
+        loaded(ReservationStatus.RESERVED, 2).assertChangeable(2); // 통과
+        assertCode(() -> loaded(ReservationStatus.COMPLETED, 1).assertChangeable(0), ErrorCode.INVALID_STATUS_TRANSITION);
+        assertCode(() -> loaded(ReservationStatus.CANCELED, 1).assertChangeable(1), ErrorCode.INVALID_STATUS_TRANSITION);
+        assertCode(() -> loaded(ReservationStatus.RESERVED, 2).assertChangeable(1), ErrorCode.CONCURRENT_MODIFICATION);
+    }
+
+    @Test
+    @DisplayName("change: 값이 있는 것만 바꾼다(null은 그대로), 메모는 빈 문자열이면 비운다, 고객·차량·담당은 그대로")
+    void changeOnlyGivenFields() {
+        Reservation r = Reservation.register(1L, 10L, AT, false, "메모", 7L);
+        ReflectionTestUtils.setField(r, "version", 0);
+
+        r.change(NOW, null, null, null);
+        assertThat(r.getReservedAt()).isEqualTo(AT);
+        assertThat(r.getPurposeMemo()).isEqualTo("메모");
+
+        r.change(NOW, AT.plusDays(1), true, "새 메모");
+        assertThat(r.getReservedAt()).isEqualTo(AT.plusDays(1));
+        assertThat(r.isPurposeOther()).isTrue();
+        assertThat(r.getPurposeMemo()).isEqualTo("새 메모");
+        assertThat(r.getVehicleId()).isEqualTo(10L);
+        assertThat(r.getAssigneeStaffId()).isEqualTo(7L);
+
+        r.change(NOW, null, null, "");
+        assertThat(r.getPurposeMemo()).isNull();
+    }
+
+    @Test
+    @DisplayName("change는 수정 시각을 항상 앞으로 민다 — 목적만 바뀌어도 행이 바뀐 것이 되어 @Version이 오르게 한다(R11). 같은 초면 1초 앞으로")
+    void changeAlwaysAdvancesUpdatedAt() {
+        Reservation r = Reservation.register(1L, 10L, AT, false, null, 7L);
+        ReflectionTestUtils.setField(r, "version", 0);
+        ReflectionTestUtils.setField(r, "updatedAt", NOW.minusDays(1));
+
+        r.change(NOW, null, null, null); // 아무 칼럼 값도 안 바뀌는 변경(목적 행만 바뀌는 경우)
+        assertThat(ReflectionTestUtils.getField(r, "updatedAt")).isEqualTo(NOW);
+
+        r.change(NOW, null, null, null); // 같은 초에 다시
+        assertThat(ReflectionTestUtils.getField(r, "updatedAt")).isEqualTo(NOW.plusSeconds(1));
     }
 }

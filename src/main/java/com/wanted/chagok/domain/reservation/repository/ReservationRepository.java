@@ -16,6 +16,7 @@ public interface ReservationRepository extends JpaRepository<Reservation, Long> 
     /** {@code getOwned}의 바탕. 없거나 다른 정비소 것이면 비어 있다(둘을 구분하지 않는다, D-12). */
     Optional<Reservation> findByIdAndShopId(Long id, Long shopId);
 
+
     /**
      * 차량들의 유효 예약 후보: 상태가 {@code status}이고 예약 일시가 {@code from} 이후. 이른 순서로 돌려준다.
      * 차량마다 가장 이른 것을 고르는 일은 service가 한다.

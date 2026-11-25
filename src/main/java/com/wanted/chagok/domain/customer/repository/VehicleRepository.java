@@ -23,4 +23,13 @@ public interface VehicleRepository extends JpaRepository<Vehicle, Long> {
         where v.shopId = :shopId and v.id in :vehicleIds
         """)
     List<VehicleSummary> findSummaries(@Param("shopId") long shopId, @Param("vehicleIds") Collection<Long> vehicleIds);
+
+    /** 안내 수신에 동의한 고객의 차량 전체, id 오름차순 (CustomerReader.findConsentedVehicles, API 14). */
+    @Query("""
+        select new com.wanted.chagok.domain.customer.api.VehicleSummary(v.id, v.plateNumber, c.id, c.name, c.phone, c.consent)
+        from Vehicle v join Customer c on c.shopId = v.shopId and c.id = v.customerId
+        where v.shopId = :shopId and c.consent = true
+        order by v.id
+        """)
+    List<VehicleSummary> findConsentedSummaries(@Param("shopId") long shopId);
 }

@@ -173,6 +173,11 @@ public class CustomerService implements CustomerReader, CustomerWriter {
         vehicle.applyVisit(modelYear, mileage);
     }
 
+    @Override
+    public List<VehicleSummary> findConsentedVehicles(long shopId) {
+        return vehicles.findConsentedSummaries(shopId);
+    }
+
     /** LIKE 특수문자({@code % _ !})를 {@code !}로 이스케이프해 검색어를 글자 그대로 찾는다. */
     private static String likePattern(String keyword) {
         return "%" + keyword.replace("!", "!!").replace("%", "!%").replace("_", "!_") + "%";

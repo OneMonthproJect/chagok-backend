@@ -2,49 +2,157 @@ package com.wanted.chagok.domain.maintenance.service;
 
 import com.wanted.chagok.domain.account.api.StaffReader;
 import com.wanted.chagok.domain.customer.api.CustomerReader;
+import com.wanted.chagok.domain.customer.api.CustomerWriter;
+import com.wanted.chagok.domain.customer.api.VehicleRef;
 import com.wanted.chagok.domain.item.api.ItemReader;
 import com.wanted.chagok.domain.item.api.ItemRef;
 import com.wanted.chagok.domain.maintenance.api.MaintenanceReader;
 import com.wanted.chagok.domain.maintenance.api.MaintenanceRecordRef;
 import com.wanted.chagok.domain.maintenance.api.VisitRef;
 import com.wanted.chagok.domain.maintenance.dto.VisitListResponse;
+import com.wanted.chagok.domain.maintenance.dto.VisitSaveRequest;
+import com.wanted.chagok.domain.maintenance.dto.VisitSaveResponse;
 import com.wanted.chagok.domain.maintenance.entity.MaintenanceRecord;
+import com.wanted.chagok.domain.maintenance.entity.RecordType;
 import com.wanted.chagok.domain.maintenance.repository.MaintenanceRecordRepository;
+import com.wanted.chagok.global.error.BusinessException;
+import com.wanted.chagok.global.error.ErrorCode;
+import com.wanted.chagok.global.response.ApiResponse.FieldErrorDetail;
 import com.wanted.chagok.global.web.PageLimit;
+import java.time.Clock;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.UUID;
 import java.util.stream.Collectors;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * 방문 이력 조회(API 11, F-MNT-01)와 다른 도메인에 주는 읽기 계약 구현. 저장(API 12)은 #42가 메서드를 더한다.
- * 차량 소속은 {@code customer.api}, 항목 이름은 {@code item.api}, 담당 이름은 {@code account.api}로만 확인한다. 모든 조회는 {@code shopId}와 함께 한다(I-3).
+ * 방문 이력 조회(API 11, F-MNT-01), 방문·정비 기록 저장(API 12)과 다른 도메인에 주는 읽기 계약 구현.
+ * 차량 소속은 {@code customer.api}, 항목은 {@code item.api}, 담당 이름은 {@code account.api}로만 확인한다. 차량 값 반영도 {@code customer.api}의
+ * 쓰기 계약({@link CustomerWriter})으로만 한다. 모든 조회는 {@code shopId}와 함께 한다(I-3).
  */
 @Service
 @Transactional(readOnly = true)
 public class MaintenanceService implements MaintenanceReader {
 
+    private static final String NOT_OPEN = "아직 사용할 수 없는 입력입니다.";
+
     private final MaintenanceRecordRepository records;
     private final CustomerReader customers;
+    private final CustomerWriter vehicleWriter;
     private final ItemReader items;
     private final StaffReader staff;
+    private final Clock clock;
 
-    public MaintenanceService(MaintenanceRecordRepository records, CustomerReader customers, ItemReader items,
-                              StaffReader staff) {
+    public MaintenanceService(MaintenanceRecordRepository records, CustomerReader customers,
+                              CustomerWriter vehicleWriter, ItemReader items, StaffReader staff, Clock clock) {
         this.records = records;
         this.customers = customers;
+        this.vehicleWriter = vehicleWriter;
         this.items = items;
         this.staff = staff;
+        this.clock = clock;
+    }
+
+    /**
+     * API 12. 한 방문의 기록 행들을 한 {@code visit_key}로 저장하고, 같은 트랜잭션에서 차량의 연식·최근 주행거리를 반영한다
+     * (하나라도 실패하면 아무것도 저장하지 않는다). 담당은 저장한 계정이다(P0-핵심). 검증 순서는 차량 소속(404, X5) →
+     * P0-핵심에서 열지 않은 입력 → 방문일 → 항목 중복 → 쓰는 항목(X11) → 차량이 비어 있을 때 필수(D-58) → 저장.
+     */
+    @Transactional
+    public VisitSaveResponse saveVisit(long shopId, long staffId, long vehicleId, VisitSaveRequest request) {
+        VehicleRef vehicle = customers.getOwnedVehicle(shopId, vehicleId);
+
+        rejectNotOpenInputs(request);
+        if (request.visitDate().isAfter(LocalDate.now(clock))) {
+            throw BusinessException.invalidField("visitDate", "오늘 이전 날짜만 입력할 수 있습니다.");
+        }
+        requireNoDuplicateItems(request.records());
+        items.requireActiveItems(shopId,
+            request.records().stream().map(VisitSaveRequest.RecordInput::itemId).toList(), "records[].itemId");
+
+        Integer modelYear = request.vehicle() == null ? null : request.vehicle().modelYear();
+        requireVehicleInfo(vehicle, modelYear, request.mileage());
+        // 연식·주행거리의 범위 검증과 반영 규칙은 customer 한 곳에 있다. 실패하면 이 트랜잭션이 통째로 취소된다.
+        vehicleWriter.applyVisit(shopId, vehicleId, modelYear, request.mileage());
+
+        String visitKey = UUID.randomUUID().toString();
+        List<MaintenanceRecord> rows = request.records().stream()
+            .map(r -> MaintenanceRecord.record(shopId, vehicleId, r.itemId(), visitKey, request.visitDate(),
+                request.mileage(), r.type(), staffId, blankToNull(r.memo())))
+            .toList();
+        return new VisitSaveResponse(vehicleId, visitKey, records.saveAll(rows).size());
+    }
+
+    /** P0-핵심에서는 {@code REPLACE}·{@code INSPECT}만 받는다. 나머지 입력(외부·거절·점검 결과·담당 지정)은 모두 400 (08 12). */
+    private static void rejectNotOpenInputs(VisitSaveRequest request) {
+        List<FieldErrorDetail> errors = new ArrayList<>();
+        if (request.mechanicId() != null) {
+            errors.add(new FieldErrorDetail("mechanicId", NOT_OPEN));
+        }
+        List<VisitSaveRequest.RecordInput> rows = request.records();
+        for (int i = 0; i < rows.size(); i++) {
+            VisitSaveRequest.RecordInput r = rows.get(i);
+            String at = "records[" + i + "].";
+            if (r.type() == RecordType.EXTERNAL || r.type() == RecordType.DECLINE) {
+                errors.add(new FieldErrorDetail(at + "type", NOT_OPEN));
+            }
+            if (r.externalDate() != null) {
+                errors.add(new FieldErrorDetail(at + "externalDate", NOT_OPEN));
+            }
+            if (r.externalMileage() != null) {
+                errors.add(new FieldErrorDetail(at + "externalMileage", NOT_OPEN));
+            }
+            if (r.inspectResult() != null) {
+                errors.add(new FieldErrorDetail(at + "inspectResult", NOT_OPEN));
+            }
+        }
+        throwIfAny(errors);
+    }
+
+    /** 같은 방문에 같은 항목을 두 번 넣을 수 없다 (05 POL-57). 요청 안의 중복이라 DB 제약은 없다(07 3.7). */
+    private static void requireNoDuplicateItems(List<VisitSaveRequest.RecordInput> rows) {
+        Set<Long> seen = new HashSet<>();
+        List<FieldErrorDetail> errors = new ArrayList<>();
+        for (int i = 0; i < rows.size(); i++) {
+            if (!seen.add(rows.get(i).itemId())) {
+                errors.add(new FieldErrorDetail("records[" + i + "].itemId", "같은 항목을 두 번 넣을 수 없습니다."));
+            }
+        }
+        throwIfAny(errors);
+    }
+
+    /** 차량에 연식이나 최근 주행거리가 비어 있으면 첫 저장 때 요청에 있어야 한다 (D-58). 둘 다 비었으면 둘 다 알린다. */
+    private static void requireVehicleInfo(VehicleRef vehicle, Integer modelYear, Integer mileage) {
+        List<FieldErrorDetail> errors = new ArrayList<>();
+        if (vehicle.modelYear() == null && modelYear == null) {
+            errors.add(new FieldErrorDetail("vehicle.modelYear", "차량의 연식이 비어 있어 입력해 주세요."));
+        }
+        if (vehicle.latestMileage() == null && mileage == null) {
+            errors.add(new FieldErrorDetail("mileage", "차량의 주행거리가 비어 있어 입력해 주세요."));
+        }
+        throwIfAny(errors);
+    }
+
+    private static void throwIfAny(List<FieldErrorDetail> errors) {
+        if (!errors.isEmpty()) {
+            throw new BusinessException(ErrorCode.INVALID_INPUT, errors, null, null);
+        }
+    }
+
+    private static String blankToNull(String memo) {
+        return memo == null || memo.isBlank() ? null : memo.strip();
     }
 
     /** API 11. 없거나 남의 정비소 차량이면 404(X2)이고, 기록이 없으면 {@code items: []}. */

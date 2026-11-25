@@ -19,7 +19,7 @@ import org.springframework.data.jpa.domain.support.AuditingEntityListener;
 /**
  * maintenance_record 테이블 (07 3.7, V1). 항목마다 1행이고, 한 번 저장한 방문의 행은 모두 같은 {@code visitKey}를 가진다.
  * 정비소 데이터이므로 조회는 항상 {@code shopId}와 함께. 차량·항목·담당 정비사는 복합 FK를 JPA 연관으로 풀지 않고 id로만 가리킨다.
- * V1에는 {@code updated_at}·{@code version}이 없다(P0-나머지 V2). 저장(API 12)은 #42가 팩토리 메서드를 더한다.
+ * V1에는 {@code updated_at}·{@code version}이 없다(P0-나머지 V2). 저장(API 12)은 {@link #record}로 만든다.
  */
 @Entity
 @Table(name = "maintenance_record")
@@ -71,6 +71,29 @@ public class MaintenanceRecord {
     private LocalDateTime createdAt;
 
     protected MaintenanceRecord() {
+    }
+
+    private MaintenanceRecord(long shopId, long vehicleId, long serviceItemId, String visitKey, LocalDate recordDate,
+                              Integer mileage, RecordType recordType, long staffId, String memo) {
+        this.shopId = shopId;
+        this.vehicleId = vehicleId;
+        this.serviceItemId = serviceItemId;
+        this.visitKey = visitKey;
+        this.recordDate = recordDate;
+        this.mileage = mileage;
+        this.recordType = recordType;
+        // 구분과 출처의 짝은 서버가 맞춘다 (07 3.7 CHECK: EXTERNAL ↔ CUSTOMER_STATEMENT)
+        this.source = recordType.isExternal() ? "CUSTOMER_STATEMENT" : "SHOP";
+        this.staffId = staffId;
+        this.memo = memo;
+    }
+
+    /** 방문 한 번에 저장하는 기록 한 행 (API 12). 같은 방문의 행은 같은 {@code visitKey}·차량·담당을 받는다. */
+    public static MaintenanceRecord record(long shopId, long vehicleId, long serviceItemId, String visitKey,
+                                           LocalDate recordDate, Integer mileage, RecordType recordType, long staffId,
+                                           String memo) {
+        return new MaintenanceRecord(shopId, vehicleId, serviceItemId, visitKey, recordDate, mileage, recordType,
+            staffId, memo);
     }
 
     public Long getId() {

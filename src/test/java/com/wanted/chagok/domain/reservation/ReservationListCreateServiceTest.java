@@ -320,9 +320,9 @@ class ReservationListCreateServiceTest {
         when(repository.findInPeriod(SHOP, day.atStartOfDay(), day.plusDays(1).atStartOfDay()))
             .thenReturn(List.of(overdue, later, canceled));
         when(customerReader.findVehicleSummaries(eq(SHOP), anyCollection())).thenReturn(Map.of(
-            4L, new VehicleSummary(4L, "12가0004", 40L, "오세훈", "010-0000-0004"),
-            8L, new VehicleSummary(8L, "12가0008", 80L, "김민수", "010-0000-0008"),
-            9L, new VehicleSummary(9L, "12가0009", 90L, "박지영", "010-0000-0009")));
+            4L, new VehicleSummary(4L, "12가0004", 40L, "오세훈", "010-0000-0004", true),
+            8L, new VehicleSummary(8L, "12가0008", 80L, "김민수", "010-0000-0008", true),
+            9L, new VehicleSummary(9L, "12가0009", 90L, "박지영", "010-0000-0009", true)));
         when(itemRepository.findByShopIdAndReservationIdIn(eq(SHOP), anyCollection())).thenReturn(List.of(
             ReservationItem.of(SHOP, 1L, 5L), ReservationItem.of(SHOP, 1L, 2L)));
         when(itemReader.findItems(eq(SHOP), anyCollection())).thenReturn(Map.of(

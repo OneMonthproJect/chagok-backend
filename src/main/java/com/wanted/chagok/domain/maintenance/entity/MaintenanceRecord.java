@@ -21,8 +21,8 @@ import org.springframework.data.jpa.domain.support.AuditingEntityListener;
 /**
  * maintenance_record 테이블 (07 3.7, V1·V2). 항목마다 1행이고, 한 번 저장한 방문의 행은 모두 같은 {@code visitKey}를 가진다.
  * 정비소 데이터이므로 조회는 항상 {@code shopId}와 함께. 차량·항목·담당 정비사는 복합 FK를 JPA 연관으로 풀지 않고 id로만 가리킨다.
- * {@code updated_at}·{@code version}은 V2에서 더해졌다(D-55). {@code inspect_result}는 저장(API 12)이 쓰는 칼럼이라
- * 그때(#42) 함께 매핑한다. 저장(API 12)은 #42가 팩토리 메서드를 더한다.
+ * {@code updated_at}·{@code version}은 V2에서 더해졌다(D-55). {@code inspect_result}는 점검 결과 입력이 열리는
+ * P0-나머지(저장 API 12는 지금 400으로 거절)에서 함께 매핑한다. 저장(API 12)은 {@link #record}로 만든다.
  */
 @Entity
 @Table(name = "maintenance_record")
@@ -84,6 +84,29 @@ public class MaintenanceRecord {
     private Integer version;
 
     protected MaintenanceRecord() {
+    }
+
+    private MaintenanceRecord(long shopId, long vehicleId, long serviceItemId, String visitKey, LocalDate recordDate,
+                              Integer mileage, RecordType recordType, long staffId, String memo) {
+        this.shopId = shopId;
+        this.vehicleId = vehicleId;
+        this.serviceItemId = serviceItemId;
+        this.visitKey = visitKey;
+        this.recordDate = recordDate;
+        this.mileage = mileage;
+        this.recordType = recordType;
+        // 구분과 출처의 짝은 서버가 맞춘다 (07 3.7 CHECK: EXTERNAL ↔ CUSTOMER_STATEMENT)
+        this.source = recordType.isExternal() ? "CUSTOMER_STATEMENT" : "SHOP";
+        this.staffId = staffId;
+        this.memo = memo;
+    }
+
+    /** 방문 한 번에 저장하는 기록 한 행 (API 12). 같은 방문의 행은 같은 {@code visitKey}·차량·담당을 받는다. */
+    public static MaintenanceRecord record(long shopId, long vehicleId, long serviceItemId, String visitKey,
+                                           LocalDate recordDate, Integer mileage, RecordType recordType, long staffId,
+                                           String memo) {
+        return new MaintenanceRecord(shopId, vehicleId, serviceItemId, visitKey, recordDate, mileage, recordType,
+            staffId, memo);
     }
 
     public Long getId() {

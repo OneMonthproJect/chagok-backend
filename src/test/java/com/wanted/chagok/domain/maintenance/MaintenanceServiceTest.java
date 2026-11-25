@@ -51,13 +51,17 @@ class MaintenanceServiceTest {
     private CustomerReader customers;
 
     @Mock
+    private com.wanted.chagok.domain.customer.api.CustomerWriter vehicleWriter;
+
+    @Mock
     private ItemReader items;
 
     @Mock
     private StaffReader staff;
 
     private MaintenanceService service() {
-        return new MaintenanceService(repository, customers, items, staff);
+        return new MaintenanceService(repository, customers, vehicleWriter, items, staff,
+            java.time.Clock.fixed(java.time.Instant.parse("2026-11-25T03:00:00Z"), java.time.ZoneId.of("Asia/Seoul")));
     }
 
     private static MaintenanceRecord record(long id, String visitKey, long itemId, String date, Integer mileage,

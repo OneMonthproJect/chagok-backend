@@ -188,7 +188,21 @@ class CustomerServiceDbTest {
 
         assertThat(result).containsOnlyKeys(a.vehicleId(), b.vehicleId());
         assertThat(result.get(a.vehicleId())).isEqualTo(
-            new VehicleSummary(a.vehicleId(), "12가0001", a.customerId(), "김민수", "010-0000-0001"));
+            new VehicleSummary(a.vehicleId(), "12가0001", a.customerId(), "김민수", "010-0000-0001", false));
         assertThat(reader.findVehicleSummaries(shopA, List.of())).isEmpty();
+    }
+
+    @Test
+    @DisplayName("계약 findVehicleSummaries의 consent: 등록 때 정한 동의 여부(true·false)가 그대로 읽힌다 (08 17번 customer.consent)")
+    void reader_vehicleSummariesConsent() {
+        CustomerCreateResponse declined = register(shopA, "김민수", "010-0000-0001", "12가0001");
+        CustomerCreateResponse agreed = service.register(shopA, new CustomerCreateRequest("이서연", "010-0000-0002", true,
+            new VehicleInput("34나0002", "쏘나타", 2018, null)));
+
+        Map<Long, VehicleSummary> result = reader.findVehicleSummaries(shopA,
+            List.of(declined.vehicleId(), agreed.vehicleId()));
+
+        assertThat(result.get(declined.vehicleId()).consent()).isFalse();
+        assertThat(result.get(agreed.vehicleId()).consent()).isTrue();
     }
 }

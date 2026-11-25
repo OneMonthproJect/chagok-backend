@@ -360,6 +360,31 @@ class ReservationServiceDbTest {
         assertThat(dbVersion(id)).isZero();
     }
 
+    @Test
+    @DisplayName("변경: 지난 날짜 RESERVED 예약은 같은 차량에 미래 유효 예약이 있어도 메모만은 바뀌고(version +1), 일시를 오늘 이후로 옮기면 409")
+    void pastReservationMemoOnlyAndMoveToFuture() {
+        long past = insertReservation(shopA, vehicleA1, TODAY.minusDays(2).atTime(10, 0), "RESERVED", staffA);
+        long future = insertReservation(shopA, vehicleA1, TODAY.plusDays(6).atTime(10, 0), "RESERVED", staffA);
+        em.flush();
+        em.clear();
+
+        service.update(shopA, past, update(0, null, null, null, "정정 메모"));
+        em.flush();
+        em.clear();
+        assertThat(dbVersion(past)).isEqualTo(1);
+        assertThat(jdbc.queryForObject("SELECT purpose_memo FROM reservation WHERE id = ?", String.class, past))
+            .isEqualTo("정정 메모");
+        assertThat(reservations.findById(past).orElseThrow().getReservedAt()).isEqualTo(TODAY.minusDays(2).atTime(10, 0));
+
+        assertThatThrownBy(() -> service.update(shopA, past, update(1, TODAY.plusDays(2).atTime(9, 0), null, null, null)))
+            .isInstanceOfSatisfying(BusinessException.class, e -> {
+                assertThat(e.code()).isEqualTo(ErrorCode.RESERVATION_ACTIVE_EXISTS);
+                assertThat(e.details()).isEqualTo(Map.of("reservationId", future));
+            });
+        em.clear();
+        assertThat(dbVersion(past)).isEqualTo(1);
+    }
+
     // ------------------------------------------------------------------ helpers
 
     private long createReservation(long vehicleId, LocalDateTime at, List<Long> itemIds) {

@@ -17,6 +17,8 @@ import com.wanted.chagok.domain.customer.repository.VehicleRepository;
 import com.wanted.chagok.global.error.BusinessException;
 import com.wanted.chagok.global.error.ErrorCode;
 import com.wanted.chagok.global.web.PageLimit;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.LockModeType;
 import java.time.Clock;
 import java.time.LocalDate;
 import java.util.Collection;
@@ -46,11 +48,14 @@ public class CustomerService implements CustomerReader, CustomerWriter {
     private final CustomerRepository customers;
     private final VehicleRepository vehicles;
     private final Clock clock;
+    private final EntityManager entityManager;
 
-    public CustomerService(CustomerRepository customers, VehicleRepository vehicles, Clock clock) {
+    public CustomerService(CustomerRepository customers, VehicleRepository vehicles, Clock clock,
+                           EntityManager entityManager) {
         this.customers = customers;
         this.vehicles = vehicles;
         this.clock = clock;
+        this.entityManager = entityManager;
     }
 
     /** API 05. 비어 있는 {@code q}는 전체(최근 등록순). 검색어의 공백·하이픈은 무시한다. */
@@ -104,10 +109,15 @@ public class CustomerService implements CustomerReader, CustomerWriter {
 
     /** API 09. 차량과 그 고객(연락처 전체, D-40). 없거나 남의 정비소 차량이면 404 (X2). */
     public VehicleDetailResponse getVehicleDetail(long shopId, long vehicleId) {
-        Vehicle vehicle = vehicles.findByIdAndShopId(vehicleId, shopId)
-            .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND));
+        Vehicle vehicle = ownedVehicle(shopId, vehicleId);
         Customer customer = getOwned(shopId, vehicle.getCustomerId());
         return VehicleDetailResponse.of(vehicle, customer);
+    }
+
+    /** 차량이 우리 정비소 것인지 확인한다. 없거나 남의 정비소 것이면 같은 404 (D-12). 차량 소속 확인은 여기 한 곳이다. */
+    private Vehicle ownedVehicle(long shopId, long vehicleId) {
+        return vehicles.findByIdAndShopId(vehicleId, shopId)
+            .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND));
     }
 
     /** 연식의 상한(현재 연도 + 1)은 시각이 필요해 Bean Validation 대신 {@code Clock}으로 확인한다 (D-63 B04). */
@@ -126,8 +136,7 @@ public class CustomerService implements CustomerReader, CustomerWriter {
 
     @Override
     public VehicleRef getOwnedVehicle(long shopId, long vehicleId) {
-        Vehicle v = vehicles.findByIdAndShopId(vehicleId, shopId)
-            .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND));
+        Vehicle v = ownedVehicle(shopId, vehicleId);
         return new VehicleRef(v.getId(), v.getCustomerId(), v.getPlateNumber(), v.getModel(), v.getModelYear(),
             v.getLatestMileage());
     }
@@ -158,15 +167,16 @@ public class CustomerService implements CustomerReader, CustomerWriter {
     @Override
     @Transactional
     public void applyVisit(long shopId, long vehicleId, Integer modelYear, Integer mileage) {
-        Vehicle vehicle = vehicles.findByIdAndShopId(vehicleId, shopId)
-            .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND));
-        // 연식 상한 검사는 register와 같은 규칙이다. register는 #24가 같은 줄을 고치고 있어 이 PR에서는 건드리지 않았다.
-        // #24 머지 뒤 한 헬퍼로 합친다(하한 1980은 DTO @Min과 여기서 모두 확인).
-        int maxYear = LocalDate.now(clock).getYear() + 1;
-        if (modelYear != null && (modelYear < MIN_MODEL_YEAR || modelYear > maxYear)) {
+        Vehicle vehicle = ownedVehicle(shopId, vehicleId);
+        // 같은 차량의 방문 저장이 겹쳐도 최근 주행거리가 낮아지지 않도록 행을 잠그고 최신 값을 다시 읽는다.
+        // saveVisit이 앞에서 차량을 읽어 영속성 컨텍스트에 올려 두었을 수 있으므로, 잠금 조회만으로는 낡은 값이 남아 refresh로 함께 읽는다.
+        entityManager.refresh(vehicle, LockModeType.PESSIMISTIC_WRITE);
+        // 하한 1980은 DTO @Min과 여기서 모두 확인, 상한은 등록·차량 추가와 같은 헬퍼
+        if (modelYear != null && modelYear < MIN_MODEL_YEAR) {
             throw BusinessException.invalidField("vehicle.modelYear",
-                MIN_MODEL_YEAR + "년부터 " + maxYear + "년까지 입력할 수 있습니다.");
+                MIN_MODEL_YEAR + "년부터 " + (LocalDate.now(clock).getYear() + 1) + "년까지 입력할 수 있습니다.");
         }
+        checkModelYearUpperBound(modelYear, "vehicle.modelYear");
         if (mileage != null && (mileage < 0 || mileage > MAX_MILEAGE)) {
             throw BusinessException.invalidField("mileage", "0 이상 2,000,000 이하로 입력해 주세요.");
         }

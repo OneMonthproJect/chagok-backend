@@ -46,7 +46,7 @@ class CustomerReaderOwnedCustomerTest {
     private final Clock clock = Clock.fixed(Instant.parse("2026-11-25T03:00:00Z"), ZoneId.of("Asia/Seoul"));
 
     private CustomerService service() {
-        return new CustomerService(customers, vehicles, clock);
+        return new CustomerService(customers, vehicles, clock, org.mockito.Mockito.mock(jakarta.persistence.EntityManager.class));
     }
 
     private static Customer customer() {

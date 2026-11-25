@@ -30,6 +30,9 @@ class CustomerWriterTransactionDbTest {
     private CustomerWriter writer;
 
     @Autowired
+    private com.wanted.chagok.domain.customer.api.CustomerReader reader;
+
+    @Autowired
     private JdbcTemplate jdbc;
 
     @Autowired
@@ -40,13 +43,16 @@ class CustomerWriterTransactionDbTest {
 
     @BeforeEach
     void data() {
-        jdbc.update("INSERT INTO shop (name, phone, status, created_at) VALUES ('트랜잭션시험정비소', '02-900-0001', 'ACTIVE', NOW())");
-        shop = jdbc.queryForObject("SELECT LAST_INSERT_ID()", Long.class);
-        jdbc.update("INSERT INTO customer (shop_id, name, phone, consent, created_at, updated_at) VALUES (?, '시험고객', '010-9000-0001', FALSE, NOW(), NOW())", shop);
-        long customer = jdbc.queryForObject("SELECT LAST_INSERT_ID()", Long.class);
-        jdbc.update("INSERT INTO vehicle (shop_id, customer_id, plate_number, model, created_at, updated_at) VALUES (?, ?, '90가0001', '아반떼', NOW(), NOW())",
-            shop, customer);
-        vehicle = jdbc.queryForObject("SELECT LAST_INSERT_ID()", Long.class);
+        // INSERT와 LAST_INSERT_ID()는 같은 연결이어야 하므로 한 트랜잭션(한 연결)으로 묶는다.
+        tx.executeWithoutResult(status -> {
+            jdbc.update("INSERT INTO shop (name, phone, status, created_at) VALUES ('트랜잭션시험정비소', '02-900-0001', 'ACTIVE', NOW())");
+            shop = jdbc.queryForObject("SELECT LAST_INSERT_ID()", Long.class);
+            jdbc.update("INSERT INTO customer (shop_id, name, phone, consent, created_at, updated_at) VALUES (?, '시험고객', '010-9000-0001', FALSE, NOW(), NOW())", shop);
+            long customer = jdbc.queryForObject("SELECT LAST_INSERT_ID()", Long.class);
+            jdbc.update("INSERT INTO vehicle (shop_id, customer_id, plate_number, model, created_at, updated_at) VALUES (?, ?, '90가0001', '아반떼', NOW(), NOW())",
+                shop, customer);
+            vehicle = jdbc.queryForObject("SELECT LAST_INSERT_ID()", Long.class);
+        });
     }
 
     @AfterEach
@@ -81,6 +87,26 @@ class CustomerWriterTransactionDbTest {
         tx.executeWithoutResult(status -> writer.applyVisit(shop, vehicle, 2019, 55_000));
 
         assertThat(row()).containsEntry("model_year", 2019).containsEntry("latest_mileage", 55_000);
+    }
+
+    @Test
+    @DisplayName("동시 저장: 먼저 읽어 둔 차량 값이 낡았어도(다른 저장이 더 큰 주행거리를 커밋) 최근 주행거리가 낮아지지 않는다")
+    void staleReadDoesNotLowerMileage() {
+        tx.executeWithoutResult(status -> {
+            reader.getOwnedVehicle(shop, vehicle); // saveVisit처럼 차량을 먼저 읽어 영속성 컨텍스트에 올린다 (주행거리 없음)
+            // 다른 방문 저장이 그사이 60,000을 커밋한 것을 흉내: 별도 트랜잭션(REQUIRES_NEW)으로 커밋한다.
+            new TransactionTemplate(tx.getTransactionManager(), requiresNew()).executeWithoutResult(
+                other -> jdbc.update("UPDATE vehicle SET latest_mileage = 60000 WHERE id = ?", vehicle));
+            writer.applyVisit(shop, vehicle, null, 50_000);
+        });
+
+        assertThat(row()).containsEntry("latest_mileage", 60_000);
+    }
+
+    private static org.springframework.transaction.support.DefaultTransactionDefinition requiresNew() {
+        var definition = new org.springframework.transaction.support.DefaultTransactionDefinition();
+        definition.setPropagationBehavior(org.springframework.transaction.TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+        return definition;
     }
 
     private Map<String, Object> row() {

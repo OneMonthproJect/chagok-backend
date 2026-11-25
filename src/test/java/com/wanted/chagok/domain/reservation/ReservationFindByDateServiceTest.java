@@ -101,22 +101,24 @@ class ReservationFindByDateServiceTest {
     }
 
     @Test
-    @DisplayName("건수는 취소를 뺀 건수 자리이고 지금(취소 상태 없음)은 목록 전체와 같다 — 끝난(COMPLETED) 예약도 센다")
-    void countEqualsTheListWhileThereIsNoCancelledStatus() {
+    @DisplayName("건수는 취소를 뺀다 — 끝난(COMPLETED)·예약(RESERVED)은 세고, 취소(CANCELED)는 목록에만 있고 세지 않는다")
+    void countExcludesCancelledButListKeepsThem() {
         when(repository.findInPeriod(anyLong(), any(), any()))
             .thenReturn(List.of(
                 reservation(1, 4, LocalDateTime.of(2026, 11, 24, 10, 0), ReservationStatus.COMPLETED, false, null),
-                reservation(2, 4, LocalDateTime.of(2026, 11, 24, 16, 0), ReservationStatus.RESERVED, false, null)));
+                reservation(2, 4, LocalDateTime.of(2026, 11, 24, 16, 0), ReservationStatus.RESERVED, false, null),
+                reservation(3, 4, LocalDateTime.of(2026, 11, 24, 17, 0), ReservationStatus.CANCELED, false, null)));
         when(customerReader.findVehicleSummaries(anyLong(), anyCollection())).thenReturn(Map.of(
             4L, new VehicleSummary(4, "78라0004", 40, "최지은", "010-0000-0004", true)));
         when(itemRepository.findByShopIdAndReservationIdIn(anyLong(), anyCollection())).thenReturn(List.of());
 
         ReservationDay day = service().findByDate(SHOP, DAY);
 
-        assertThat(day.countExcludingCancelled()).isEqualTo(2).isEqualTo(day.reservations().size());
-        assertThat(day.reservations()).extracting("status").containsExactly("COMPLETED", "RESERVED");
-        // 끝난 예약은 시각이 지나도 "처리 필요"가 아니고, 아직 안 지난 16:00 RESERVED도 아니다
-        assertThat(day.reservations()).extracting("needsAction").containsExactly(false, false);
+        assertThat(day.countExcludingCancelled()).isEqualTo(2);
+        assertThat(day.reservations()).hasSize(3);
+        assertThat(day.reservations()).extracting("status").containsExactly("COMPLETED", "RESERVED", "CANCELED");
+        // 끝난 예약은 시각이 지나도 "처리 필요"가 아니고, 아직 안 지난 16:00 RESERVED·취소도 아니다
+        assertThat(day.reservations()).extracting("needsAction").containsExactly(false, false, false);
     }
 
     @Test

@@ -170,10 +170,11 @@ class EndpointGuardTest {
     }
 
     @Test
-    @DisplayName("올바른 역할은 보안을 통과한다 (Controller가 아직 없어 404 NOT_FOUND)")
+    @DisplayName("올바른 역할은 보안을 통과한다 (처리기가 없는 경로라 401·403이 아니라 404 NOT_FOUND)")
     void rightRolePassesSecurity() throws Exception {
-        expectError(mvc.perform(get("/api/home").header("Authorization", ownerToken())), 404, "NOT_FOUND");
-        expectError(mvc.perform(get("/api/home").header("Authorization", mechanicToken())), 404, "NOT_FOUND");
+        // 구현된 API(예: /api/home)는 실제 응답을 내므로 "보안은 통과했지만 처리기가 없다"를 보는 데 쓸 수 없다. 앞으로도 만들지 않을 경로를 쓴다
+        expectError(mvc.perform(get("/api/no-such-endpoint").header("Authorization", ownerToken())), 404, "NOT_FOUND");
+        expectError(mvc.perform(get("/api/no-such-endpoint").header("Authorization", mechanicToken())), 404, "NOT_FOUND");
         expectError(mvc.perform(get("/api/admin/shops").header("Authorization", adminToken())), 404, "NOT_FOUND");
     }
 }

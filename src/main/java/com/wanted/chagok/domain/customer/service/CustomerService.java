@@ -115,7 +115,7 @@ public class CustomerService implements CustomerReader {
         }
     }
 
-    /** 고객이 우리 정비소 것인지 확인한다. 없거나 남의 정비소 것이면 같은 404 (D-12). 같은 도메인의 다음 이슈(#24·#43)가 쓴다. */
+    /** 고객이 우리 정비소 것인지 확인한다. 없거나 남의 정비소 것이면 같은 404 (D-12). 차량 추가(API 08)·차량 상세(API 09)가 쓰고, 고객 상세(#43)가 쓴다. */
     public Customer getOwned(long shopId, long customerId) {
         return customers.findByIdAndShopId(customerId, shopId)
             .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND));

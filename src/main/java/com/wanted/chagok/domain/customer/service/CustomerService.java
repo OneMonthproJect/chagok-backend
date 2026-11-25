@@ -1,6 +1,7 @@
 package com.wanted.chagok.domain.customer.service;
 
 import com.wanted.chagok.domain.customer.api.CustomerReader;
+import com.wanted.chagok.domain.customer.api.CustomerRef;
 import com.wanted.chagok.domain.customer.api.CustomerWriter;
 import com.wanted.chagok.domain.customer.api.VehicleRef;
 import com.wanted.chagok.domain.customer.api.VehicleSummary;
@@ -32,7 +33,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 /**
  * 고객·차량 검색(F-CUS-01)·등록(F-CUS-02)과 다른 도메인에 주는 읽기 계약 구현.
- * 차량 추가(API 08)·차량 상세(API 09)도 이 클래스가 맡는다. 이후 이슈(#43 고객 상세)가 메서드를 더한다.
+ * 차량 추가(API 08)·차량 상세(API 09)도 이 클래스가 맡는다. 고객 상세(API 07)는 screen/visit이 이 클래스의 읽기 계약({@code getOwnedCustomer})으로 읽는다.
  * 정비소 데이터는 모두 {@code shopId}(토큰)로만 조회한다.
  */
 @Service
@@ -117,7 +118,7 @@ public class CustomerService implements CustomerReader, CustomerWriter {
         }
     }
 
-    /** 고객이 우리 정비소 것인지 확인한다. 없거나 남의 정비소 것이면 같은 404 (D-12). 차량 추가(API 08)·차량 상세(API 09)가 쓰고, 고객 상세(#43)가 쓴다. */
+    /** 고객이 우리 정비소 것인지 확인한다. 없거나 남의 정비소 것이면 같은 404 (D-12). 차량 추가(API 08)·차량 상세(API 09)와 읽기 계약 {@code getOwnedCustomer}가 쓴다. */
     public Customer getOwned(long shopId, long customerId) {
         return customers.findByIdAndShopId(customerId, shopId)
             .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND));
@@ -140,6 +141,16 @@ public class CustomerService implements CustomerReader, CustomerWriter {
             .collect(Collectors.toMap(VehicleSummary::vehicleId, Function.identity())));
     }
 
+    @Override
+    public CustomerRef getOwnedCustomer(long shopId, long customerId) {
+        Customer customer = getOwned(shopId, customerId);
+        List<VehicleRef> refs = vehicles.findByShopIdAndCustomerIdInOrderByIdAsc(shopId, List.of(customerId)).stream()
+            .map(v -> new VehicleRef(v.getId(), v.getCustomerId(), v.getPlateNumber(), v.getModel(), v.getModelYear(),
+                v.getLatestMileage()))
+            .toList();
+        return new CustomerRef(customer.getId(), customer.getName(), customer.getPhone(), customer.isConsent(), refs);
+    }
+
     /**
      * 방문·정비 기록 저장 때 차량의 연식·최근 주행거리를 반영한다 (규칙은 {@link CustomerWriter#applyVisit}).
      * 읽기 전용 클래스 설정을 덮어쓰고, 호출한 쪽(maintenance)의 트랜잭션에 참여한다.
@@ -160,6 +171,11 @@ public class CustomerService implements CustomerReader, CustomerWriter {
             throw BusinessException.invalidField("mileage", "0 이상 2,000,000 이하로 입력해 주세요.");
         }
         vehicle.applyVisit(modelYear, mileage);
+    }
+
+    @Override
+    public List<VehicleSummary> findConsentedVehicles(long shopId) {
+        return vehicles.findConsentedSummaries(shopId);
     }
 
     /** LIKE 특수문자({@code % _ !})를 {@code !}로 이스케이프해 검색어를 글자 그대로 찾는다. */

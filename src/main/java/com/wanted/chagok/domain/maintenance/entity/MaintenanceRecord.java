@@ -9,17 +9,20 @@ import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import jakarta.persistence.Version;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 import org.springframework.data.annotation.CreatedDate;
+import org.springframework.data.annotation.LastModifiedDate;
 import org.springframework.data.jpa.domain.support.AuditingEntityListener;
 
 /**
- * maintenance_record 테이블 (07 3.7, V1). 항목마다 1행이고, 한 번 저장한 방문의 행은 모두 같은 {@code visitKey}를 가진다.
+ * maintenance_record 테이블 (07 3.7, V1·V2). 항목마다 1행이고, 한 번 저장한 방문의 행은 모두 같은 {@code visitKey}를 가진다.
  * 정비소 데이터이므로 조회는 항상 {@code shopId}와 함께. 차량·항목·담당 정비사는 복합 FK를 JPA 연관으로 풀지 않고 id로만 가리킨다.
- * V1에는 {@code updated_at}·{@code version}이 없다(P0-나머지 V2). 저장(API 12)은 #42가 팩토리 메서드를 더한다.
+ * {@code updated_at}·{@code version}은 V2에서 더해졌다(D-55). {@code inspect_result}는 저장(API 12)이 쓰는 칼럼이라
+ * 그때(#42) 함께 매핑한다. 저장(API 12)은 #42가 팩토리 메서드를 더한다.
  */
 @Entity
 @Table(name = "maintenance_record")
@@ -70,6 +73,16 @@ public class MaintenanceRecord {
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
 
+    /** V2 (07 3.7, D-55). 수정(F-MNT-04) 때 서버 JPA Auditing이 채운다. */
+    @LastModifiedDate
+    @Column(name = "updated_at", nullable = false)
+    private LocalDateTime updatedAt;
+
+    /** V2 (07 3.7, D-55). 동시 수정 확인 (JPA {@code @Version}). */
+    @Version
+    @Column(name = "version", nullable = false)
+    private Integer version;
+
     protected MaintenanceRecord() {
     }
 
@@ -119,5 +132,13 @@ public class MaintenanceRecord {
 
     public LocalDateTime getCreatedAt() {
         return createdAt;
+    }
+
+    public LocalDateTime getUpdatedAt() {
+        return updatedAt;
+    }
+
+    public Integer getVersion() {
+        return version;
     }
 }

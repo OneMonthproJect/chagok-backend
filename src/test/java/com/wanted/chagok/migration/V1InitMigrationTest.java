@@ -403,9 +403,9 @@ class V1InitMigrationTest {
     void v1_12_noLaterStageColumnsOrValues() {
         Map<String, List<String>> expectedColumns = Map.ofEntries(
             Map.entry("platform_admin", List.of("id", "login_id", "password_hash", "name", "created_at")),
-            // V2: shop에 사업자 주소·정비소 주소
+            // V2: shop에 사업자등록번호(brn)·정비소 주소
             Map.entry("shop", List.of("id", "name", "phone", "status", "created_by_admin_id", "created_at",
-                "business_address", "shop_address")),
+                "brn", "shop_address")),
             Map.entry("staff", List.of("id", "shop_id", "login_id", "password_hash", "name", "role",
                 "password_change_required", "created_at")),
             // V2: customer·vehicle에 version

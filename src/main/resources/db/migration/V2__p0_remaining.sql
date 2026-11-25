@@ -43,10 +43,11 @@ ALTER TABLE reservation ADD CONSTRAINT ck_reservation_status
 ALTER TABLE customer ADD COLUMN version INT NOT NULL DEFAULT 0;
 ALTER TABLE vehicle ADD COLUMN version INT NOT NULL DEFAULT 0;
 
--- 4. shop: 서비스 관리자 화면(S-10)에서 입력하는 사업자 주소·정비소 주소 (07 3.2에 추가, 문서 PR 별도)
---    기존 행(시드 정비소 등)과 주소 없이 INSERT하는 기존 코드가 깨지지 않게 NOT NULL DEFAULT '' 로 둔다.
---    기존 행은 '' 로 채워진다. 값이 실제로 있는지는 서버 검증이 확인한다 (DB 는 NULL 만 막는다).
-ALTER TABLE shop ADD COLUMN business_address VARCHAR(200) NOT NULL DEFAULT '';
+-- 4. shop: 서비스 관리자 화면(S-10)에서 입력하는 사업자등록번호(BRN)·정비소 주소 (07 3.2에 추가, 문서 PR 별도)
+--    기존 행(시드 정비소 등)과 두 값 없이 INSERT하는 기존 코드가 깨지지 않게 NOT NULL DEFAULT '' 로 둔다.
+--    기존 행은 '' 로 채워진다. 값이 실제로 있는지·형식(숫자 10자리, 하이픈 허용)은 서버 검증이 확인한다 (DB 는 NULL 만 막는다).
+--    brn 은 UNIQUE 를 두지 않는다 (같은 사업자가 정비소를 여러 곳 낼 수 있음).
+ALTER TABLE shop ADD COLUMN brn VARCHAR(20) NOT NULL DEFAULT '';
 ALTER TABLE shop ADD COLUMN shop_address VARCHAR(200) NOT NULL DEFAULT '';
 
 

@@ -8,6 +8,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
+import com.wanted.chagok.domain.account.api.StaffReader;
 import com.wanted.chagok.domain.customer.api.CustomerReader;
 import com.wanted.chagok.domain.item.api.ItemReader;
 import com.wanted.chagok.domain.item.api.ItemRef;
@@ -52,8 +53,11 @@ class MaintenanceServiceTest {
     @Mock
     private ItemReader items;
 
+    @Mock
+    private StaffReader staff;
+
     private MaintenanceService service() {
-        return new MaintenanceService(repository, customers, items);
+        return new MaintenanceService(repository, customers, items, staff);
     }
 
     private static MaintenanceRecord record(long id, String visitKey, long itemId, String date, Integer mileage,
@@ -96,9 +100,11 @@ class MaintenanceServiceTest {
             record(3, "v-same-late", 1, "2026-10-24", 30_000, RecordType.REPLACE, "2026-10-24T15:00:00"),
             record(4, "v-same-late", 2, "2026-10-24", 30_000, RecordType.INSPECT, "2026-10-24T15:00:00")));
         stubItems();
+        when(staff.findNames(SHOP, Set.of(11L))).thenReturn(Map.of(11L, "김정비"));
 
         VisitListResponse result = service().listVisits(SHOP, VEHICLE, PageLimit.of(null, null));
 
+        assertThat(result.items()).extracting(VisitRef::staffName).containsOnly("김정비");
         assertThat(result.items()).extracting(VisitRef::visitKey).containsExactly("v-same-late", "v-same-early", "v-old");
         assertThat(result.totalElements()).isEqualTo(3);
         assertThat(result.totalPages()).isEqualTo(1);

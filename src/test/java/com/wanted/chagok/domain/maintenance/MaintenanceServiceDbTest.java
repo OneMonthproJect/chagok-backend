@@ -83,6 +83,7 @@ class MaintenanceServiceDbTest {
         assertThat(result.items()).extracting(VisitRef::visitKey).containsExactly(KEY_NEW, KEY_OLD, KEY_EXT);
         VisitRef latest = result.items().get(0);
         assertThat(latest.visitDate()).isEqualTo(LocalDate.parse("2026-10-24"));
+        assertThat(latest.staffName()).isEqualTo("김정비");
         assertThat(latest.records()).hasSize(2);
         assertThat(latest.records().get(0).itemName()).isEqualTo("엔진오일");
         assertThat(latest.records().get(0).type()).isEqualTo("REPLACE");

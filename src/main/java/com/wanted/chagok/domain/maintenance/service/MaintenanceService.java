@@ -1,5 +1,6 @@
 package com.wanted.chagok.domain.maintenance.service;
 
+import com.wanted.chagok.domain.account.api.StaffReader;
 import com.wanted.chagok.domain.customer.api.CustomerReader;
 import com.wanted.chagok.domain.item.api.ItemReader;
 import com.wanted.chagok.domain.item.api.ItemRef;
@@ -27,7 +28,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 /**
  * 방문 이력 조회(API 11, F-MNT-01)와 다른 도메인에 주는 읽기 계약 구현. 저장(API 12)은 #42가 메서드를 더한다.
- * 차량 소속은 {@code customer.api}, 항목 이름은 {@code item.api}로만 확인한다. 모든 조회는 {@code shopId}와 함께 한다(I-3).
+ * 차량 소속은 {@code customer.api}, 항목 이름은 {@code item.api}, 담당 이름은 {@code account.api}로만 확인한다. 모든 조회는 {@code shopId}와 함께 한다(I-3).
  */
 @Service
 @Transactional(readOnly = true)
@@ -36,11 +37,14 @@ public class MaintenanceService implements MaintenanceReader {
     private final MaintenanceRecordRepository records;
     private final CustomerReader customers;
     private final ItemReader items;
+    private final StaffReader staff;
 
-    public MaintenanceService(MaintenanceRecordRepository records, CustomerReader customers, ItemReader items) {
+    public MaintenanceService(MaintenanceRecordRepository records, CustomerReader customers, ItemReader items,
+                              StaffReader staff) {
         this.records = records;
         this.customers = customers;
         this.items = items;
+        this.staff = staff;
     }
 
     /** API 11. 없거나 남의 정비소 차량이면 404(X2)이고, 기록이 없으면 {@code items: []}. */
@@ -122,7 +126,7 @@ public class MaintenanceService implements MaintenanceReader {
             .collect(Collectors.toSet());
         Map<Long, ItemRef> itemRefs = items.findItems(shopId, itemIds);
         Set<Long> staffIds = visits.stream().map(VisitGroup::staffId).collect(Collectors.toSet());
-        Map<Long, String> staffNames = findStaffNames(shopId, staffIds);
+        Map<Long, String> staffNames = staff.findNames(shopId, staffIds);
 
         return visits.stream()
             .map(v -> new VisitRef(v.visitKey(), v.visitDate(), v.mileage(), staffNames.get(v.staffId()),
@@ -132,16 +136,6 @@ public class MaintenanceService implements MaintenanceReader {
                         r.getRecordType().name(), r.getRecordDate(), r.getMemo()))
                     .toList()))
             .toList();
-    }
-
-    /**
-     * 담당 정비사 이름 일괄 조회. staff 표는 account 도메인 소유라 {@code account.api} 계약이 필요한데
-     * 아직 없다(chagok-backend#44에서 계약 요청 중). 계약이 머지되면 여기서 그 계약을 불러 이름을 채운다.
-     * 그 전까지 API 11의 {@code staffName}은 null이다(08 11과 다름, 미완).
-     */
-    private Map<Long, String> findStaffNames(long shopId, Collection<Long> staffIds) {
-        // TODO(#44): account.api 계약 머지 후 교체. 다른 도메인 Entity·Repository는 직접 쓰지 않는다 (CONVENTIONS 1장 1번)
-        return Map.of();
     }
 
     /** 같은 {@code visit_key}의 기록 묶음과 그 묶음의 파생 값. */

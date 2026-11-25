@@ -1,7 +1,30 @@
 package com.wanted.chagok.domain.maintenance.entity;
 
-// [뼈대] 담당: 이영주(softy20) · 이슈: #23
-// 역할: enum: 기록 종류 (교체·외부 등)
-// 선행: #4 완료
-// 이 파일은 주석만 있는 자리표시자다. 담당자가 구현할 때 이 주석을 지우고 클래스로 바꾼다.
-// 어느 이슈의 파일인지(경계)는 chagok-docs/docs/etc/STARTER/08_구현_파일_소유_충돌방지.md 4장을 따른다.
+/**
+ * 정비 구분 (0.4, 07 3.7 {@code record_type}). 주기를 다시 시작하는지는 {@link #resetsCycle()} 한 곳에서 정한다
+ * (CONVENTIONS 4장): 교체·외부는 true, 점검·거절은 false. 호출하는 쪽이 값을 보고 다시 판단하지 않는다.
+ * 입력은 P0-핵심에서 {@code REPLACE}·{@code INSPECT}만, {@code EXTERNAL}·{@code DECLINE}은 P0-나머지부터지만 시드에는 4개가 모두 있다.
+ */
+public enum RecordType {
+
+    REPLACE(true),
+    INSPECT(false),
+    EXTERNAL(true),
+    DECLINE(false);
+
+    private final boolean resetsCycle;
+
+    RecordType(boolean resetsCycle) {
+        this.resetsCycle = resetsCycle;
+    }
+
+    /** 이 기록이 그 항목의 주기를 다시 시작하는가. */
+    public boolean resetsCycle() {
+        return resetsCycle;
+    }
+
+    /** 고객이 말한 외부 정비 (source = CUSTOMER_STATEMENT). 방문 횟수·방문일 계산에서 따로 다룬다 (05 POL-45). */
+    public boolean isExternal() {
+        return this == EXTERNAL;
+    }
+}

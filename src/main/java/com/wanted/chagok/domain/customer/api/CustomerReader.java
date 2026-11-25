@@ -20,4 +20,11 @@ public interface CustomerReader {
      * 없거나 다른 정비소 차량은 결과에 없다(오류 아님). 입력이 비어 있으면 빈 Map.
      */
     Map<Long, VehicleSummary> findVehicleSummaries(long shopId, Collection<Long> vehicleIds);
+
+    /**
+     * 고객이 우리 정비소 것인지 확인하고 고객 정보와 차량 목록을 한 번에 돌려준다 (API 07 고객 상세, screen/visit이 쓴다).
+     * 없거나 다른 정비소 고객이면 404 {@code NOT_FOUND} (08 X1, D-12). 차량은 id 오름차순이고 차량이 없으면 빈 목록이다.
+     * 연락처는 P0-핵심에서 전체 번호다 (D-40). screen이 고객 소속을 확인하는 진입점은 이 메서드다.
+     */
+    CustomerRef getOwnedCustomer(long shopId, long customerId);
 }

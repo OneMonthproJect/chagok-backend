@@ -1,6 +1,7 @@
 package com.wanted.chagok.domain.customer.service;
 
 import com.wanted.chagok.domain.customer.api.CustomerReader;
+import com.wanted.chagok.domain.customer.api.CustomerRef;
 import com.wanted.chagok.domain.customer.api.CustomerWriter;
 import com.wanted.chagok.domain.customer.api.VehicleRef;
 import com.wanted.chagok.domain.customer.api.VehicleSummary;
@@ -32,7 +33,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 /**
  * 고객·차량 검색(F-CUS-01)·등록(F-CUS-02)과 다른 도메인에 주는 읽기 계약 구현.
- * 차량 추가(API 08)·차량 상세(API 09)도 이 클래스가 맡는다. 이후 이슈(#43 고객 상세)가 메서드를 더한다.
+ * 차량 추가(API 08)·차량 상세(API 09)도 이 클래스가 맡는다. 고객 상세(API 07)는 screen/visit이 이 클래스의 읽기 계약({@code getOwnedCustomer})으로 읽는다.
  * 정비소 데이터는 모두 {@code shopId}(토큰)로만 조회한다.
  */
 @Service
@@ -117,7 +118,7 @@ public class CustomerService implements CustomerReader, CustomerWriter {
         }
     }
 
-    /** 고객이 우리 정비소 것인지 확인한다. 없거나 남의 정비소 것이면 같은 404 (D-12). 차량 추가(API 08)·차량 상세(API 09)가 쓰고, 고객 상세(#43)가 쓴다. */
+    /** 고객이 우리 정비소 것인지 확인한다. 없거나 남의 정비소 것이면 같은 404 (D-12). 차량 추가(API 08)·차량 상세(API 09)와 읽기 계약 {@code getOwnedCustomer}가 쓴다. */
     public Customer getOwned(long shopId, long customerId) {
         return customers.findByIdAndShopId(customerId, shopId)
             .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND));
@@ -138,6 +139,16 @@ public class CustomerService implements CustomerReader, CustomerWriter {
         }
         return new HashMap<>(vehicles.findSummaries(shopId, vehicleIds).stream()
             .collect(Collectors.toMap(VehicleSummary::vehicleId, Function.identity())));
+    }
+
+    @Override
+    public CustomerRef getOwnedCustomer(long shopId, long customerId) {
+        Customer customer = getOwned(shopId, customerId);
+        List<VehicleRef> refs = vehicles.findByShopIdAndCustomerIdInOrderByIdAsc(shopId, List.of(customerId)).stream()
+            .map(v -> new VehicleRef(v.getId(), v.getCustomerId(), v.getPlateNumber(), v.getModel(), v.getModelYear(),
+                v.getLatestMileage()))
+            .toList();
+        return new CustomerRef(customer.getId(), customer.getName(), customer.getPhone(), customer.isConsent(), refs);
     }
 
     /**

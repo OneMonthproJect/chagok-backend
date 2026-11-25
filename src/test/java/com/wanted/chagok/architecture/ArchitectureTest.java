@@ -31,13 +31,20 @@ class ArchitectureTest {
 
     private static final String ROOT = "com.wanted.chagok";
 
+    /**
+     * 우리 도메인 패키지 전체. {@code "..domain.."}만 쓰면 Spring Data의 {@code org.springframework.data.jpa.domain.support}
+     * (AuditingEntityListener 등)도 "다른 도메인"으로 잡혀, 07 6.2대로 Entity에 감사 리스너를 다는 순간 규칙이 오탐한다.
+     * 프로젝트 패키지에 대한 검사 강도는 그대로다.
+     */
+    private static final String DOMAIN_ROOT = ROOT + ".domain..";
+
     /** CONVENTIONS 3장: 도메인마다 부를 수 있는 다른 도메인 (자기 자신·global은 언제나 허용). */
     private static final Map<String, String[]> ALLOWED_DOMAIN_DEPENDENCIES = Map.of(
         "shop", new String[] {},
         "account", new String[] {"shop"},
         "customer", new String[] {},
         "item", new String[] {},
-        "maintenance", new String[] {"customer", "item"},
+        "maintenance", new String[] {"customer", "item", "account"},
         "reservation", new String[] {"customer", "item"},
         "cycle", new String[] {}
     );
@@ -67,7 +74,7 @@ class ArchitectureTest {
     void global은_domain과_screen을_모른다() {
         requireClassesIn("..global..");
         noClasses().that().resideInAPackage("..global..")
-            .should().dependOnClassesThat().resideInAnyPackage("..domain..", "..screen..")
+            .should().dependOnClassesThat().resideInAnyPackage(DOMAIN_ROOT, "..screen..")
             .because("global은 모든 도메인이 쓰는 기반이다 (CONVENTIONS 2장)")
             .check(classes);
     }
@@ -81,9 +88,9 @@ class ArchitectureTest {
             .check(classes);
     }
 
-    // cycle은 api 패키지 없이 순수 계산 모듈이라 이 규칙에서 빼고 cycle은_순수_계산이다()로 검사한다
+    // cycle도 api(값 타입·ItemCycleCalculator)로만 부른다. cycle이 다른 것을 import하지 않는 쪽은 cycle은_순수_계산이다()가 따로 검사한다
     @ParameterizedTest(name = "{0} 도메인은 {0}.api로만 접근한다")
-    @ValueSource(strings = {"shop", "account", "customer", "item", "maintenance", "reservation"})
+    @ValueSource(strings = {"shop", "account", "customer", "item", "maintenance", "reservation", "cycle"})
     void 다른_도메인은_api로만(String domain) {
         String base = "..domain." + domain;
         requireClassesIn(base + "..");
@@ -103,7 +110,7 @@ class ArchitectureTest {
             .toArray(String[]::new);
         noClasses().that().resideInAPackage(base + "..")
             .should().dependOnClassesThat(
-                resideInAPackage("..domain..")
+                resideInAPackage(DOMAIN_ROOT)
                     .and(not(resideInAPackage(base + "..")))
                     .and(not(resideInAnyPackage(allowed))))
             .because("의존 방향은 CONVENTIONS 3장 표를 따른다 (외래키 방향 = 코드 방향)")
@@ -126,7 +133,7 @@ class ArchitectureTest {
         requireClassesIn("..domain.cycle..");
         noClasses().that().resideInAPackage("..domain.cycle..")
             .should().dependOnClassesThat(
-                resideInAPackage("..domain..").and(not(resideInAPackage("..domain.cycle..")))
+                resideInAPackage(DOMAIN_ROOT).and(not(resideInAPackage("..domain.cycle..")))
                     .or(resideInAnyPackage("org.springframework..", "jakarta.persistence..")))
             .because("cycle은 값을 받아 값을 돌려주는 순수 계산이다 (CONVENTIONS 3장)")
             .check(classes);

@@ -18,7 +18,7 @@ public interface VehicleRepository extends JpaRepository<Vehicle, Long> {
 
     /** 차량 여러 대의 차량·고객 요약을 한 번에 (CustomerReader.findVehicleSummaries). */
     @Query("""
-        select new com.wanted.chagok.domain.customer.api.VehicleSummary(v.id, v.plateNumber, c.id, c.name, c.phone)
+        select new com.wanted.chagok.domain.customer.api.VehicleSummary(v.id, v.plateNumber, c.id, c.name, c.phone, c.consent)
         from Vehicle v join Customer c on c.shopId = v.shopId and c.id = v.customerId
         where v.shopId = :shopId and v.id in :vehicleIds
         """)

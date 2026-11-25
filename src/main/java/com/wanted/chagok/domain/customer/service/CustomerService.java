@@ -1,11 +1,14 @@
 package com.wanted.chagok.domain.customer.service;
 
 import com.wanted.chagok.domain.customer.api.CustomerReader;
+import com.wanted.chagok.domain.customer.api.CustomerWriter;
 import com.wanted.chagok.domain.customer.api.VehicleRef;
 import com.wanted.chagok.domain.customer.api.VehicleSummary;
 import com.wanted.chagok.domain.customer.dto.CustomerCreateRequest;
 import com.wanted.chagok.domain.customer.dto.CustomerCreateResponse;
 import com.wanted.chagok.domain.customer.dto.CustomerSearchResponse;
+import com.wanted.chagok.domain.customer.dto.VehicleAddResponse;
+import com.wanted.chagok.domain.customer.dto.VehicleDetailResponse;
 import com.wanted.chagok.domain.customer.entity.Customer;
 import com.wanted.chagok.domain.customer.entity.Vehicle;
 import com.wanted.chagok.domain.customer.repository.CustomerRepository;
@@ -29,13 +32,15 @@ import org.springframework.transaction.annotation.Transactional;
 
 /**
  * 고객·차량 검색(F-CUS-01)·등록(F-CUS-02)과 다른 도메인에 주는 읽기 계약 구현.
- * 이후 이슈(#24 차량 추가, #43 고객 상세)가 메서드를 더한다. 정비소 데이터는 모두 {@code shopId}(토큰)로만 조회한다.
+ * 차량 추가(API 08)·차량 상세(API 09)도 이 클래스가 맡는다. 이후 이슈(#43 고객 상세)가 메서드를 더한다.
+ * 정비소 데이터는 모두 {@code shopId}(토큰)로만 조회한다.
  */
 @Service
 @Transactional(readOnly = true)
-public class CustomerService implements CustomerReader {
+public class CustomerService implements CustomerReader, CustomerWriter {
 
     private static final int MIN_MODEL_YEAR = 1980;
+    private static final int MAX_MILEAGE = 2_000_000;
 
     private final CustomerRepository customers;
     private final VehicleRepository vehicles;
@@ -75,11 +80,7 @@ public class CustomerService implements CustomerReader {
     @Transactional
     public CustomerCreateResponse register(long shopId, CustomerCreateRequest request) {
         CustomerCreateRequest.VehicleInput input = request.vehicle();
-        int maxYear = LocalDate.now(clock).getYear() + 1;
-        if (input.modelYear() != null && input.modelYear() > maxYear) {
-            throw BusinessException.invalidField("vehicle.modelYear",
-                MIN_MODEL_YEAR + "년부터 " + maxYear + "년까지 입력할 수 있습니다.");
-        }
+        checkModelYearUpperBound(input.modelYear(), "vehicle.modelYear");
         Customer customer = customers.save(
             Customer.register(shopId, request.name(), request.phone(), request.consent()));
         Vehicle vehicle = vehicles.save(Vehicle.register(shopId, customer.getId(), input.plateNumber(),
@@ -87,7 +88,36 @@ public class CustomerService implements CustomerReader {
         return new CustomerCreateResponse(customer.getId(), vehicle.getId());
     }
 
-    /** 고객이 우리 정비소 것인지 확인한다. 없거나 남의 정비소 것이면 같은 404 (D-12). 같은 도메인의 다음 이슈(#24·#43)가 쓴다. */
+    /**
+     * API 08. 기존 고객에 차량을 추가한다(차종 필수, 요청 모양은 06의 {@code vehicle}과 같다). 없거나 남의 정비소 고객이면
+     * 404이고 차량을 저장하지 않는다(X17, D-63 B11). 차량번호 중복은 막지 않는다.
+     */
+    @Transactional
+    public VehicleAddResponse addVehicle(long shopId, long customerId, CustomerCreateRequest.VehicleInput input) {
+        Customer customer = getOwned(shopId, customerId);
+        checkModelYearUpperBound(input.modelYear(), "modelYear");
+        Vehicle vehicle = vehicles.save(Vehicle.register(shopId, customer.getId(), input.plateNumber(),
+            input.model(), input.modelYear(), input.mileage()));
+        return new VehicleAddResponse(customer.getId(), vehicle.getId());
+    }
+
+    /** API 09. 차량과 그 고객(연락처 전체, D-40). 없거나 남의 정비소 차량이면 404 (X2). */
+    public VehicleDetailResponse getVehicleDetail(long shopId, long vehicleId) {
+        Vehicle vehicle = vehicles.findByIdAndShopId(vehicleId, shopId)
+            .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND));
+        Customer customer = getOwned(shopId, vehicle.getCustomerId());
+        return VehicleDetailResponse.of(vehicle, customer);
+    }
+
+    /** 연식의 상한(현재 연도 + 1)은 시각이 필요해 Bean Validation 대신 {@code Clock}으로 확인한다 (D-63 B04). */
+    private void checkModelYearUpperBound(Integer modelYear, String field) {
+        int maxYear = LocalDate.now(clock).getYear() + 1;
+        if (modelYear != null && modelYear > maxYear) {
+            throw BusinessException.invalidField(field, MIN_MODEL_YEAR + "년부터 " + maxYear + "년까지 입력할 수 있습니다.");
+        }
+    }
+
+    /** 고객이 우리 정비소 것인지 확인한다. 없거나 남의 정비소 것이면 같은 404 (D-12). 차량 추가(API 08)·차량 상세(API 09)가 쓰고, 고객 상세(#43)가 쓴다. */
     public Customer getOwned(long shopId, long customerId) {
         return customers.findByIdAndShopId(customerId, shopId)
             .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND));
@@ -108,6 +138,28 @@ public class CustomerService implements CustomerReader {
         }
         return new HashMap<>(vehicles.findSummaries(shopId, vehicleIds).stream()
             .collect(Collectors.toMap(VehicleSummary::vehicleId, Function.identity())));
+    }
+
+    /**
+     * 방문·정비 기록 저장 때 차량의 연식·최근 주행거리를 반영한다 (규칙은 {@link CustomerWriter#applyVisit}).
+     * 읽기 전용 클래스 설정을 덮어쓰고, 호출한 쪽(maintenance)의 트랜잭션에 참여한다.
+     */
+    @Override
+    @Transactional
+    public void applyVisit(long shopId, long vehicleId, Integer modelYear, Integer mileage) {
+        Vehicle vehicle = vehicles.findByIdAndShopId(vehicleId, shopId)
+            .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND));
+        // 연식 상한 검사는 register와 같은 규칙이다. register는 #24가 같은 줄을 고치고 있어 이 PR에서는 건드리지 않았다.
+        // #24 머지 뒤 한 헬퍼로 합친다(하한 1980은 DTO @Min과 여기서 모두 확인).
+        int maxYear = LocalDate.now(clock).getYear() + 1;
+        if (modelYear != null && (modelYear < MIN_MODEL_YEAR || modelYear > maxYear)) {
+            throw BusinessException.invalidField("vehicle.modelYear",
+                MIN_MODEL_YEAR + "년부터 " + maxYear + "년까지 입력할 수 있습니다.");
+        }
+        if (mileage != null && (mileage < 0 || mileage > MAX_MILEAGE)) {
+            throw BusinessException.invalidField("mileage", "0 이상 2,000,000 이하로 입력해 주세요.");
+        }
+        vehicle.applyVisit(modelYear, mileage);
     }
 
     /** LIKE 특수문자({@code % _ !})를 {@code !}로 이스케이프해 검색어를 글자 그대로 찾는다. */

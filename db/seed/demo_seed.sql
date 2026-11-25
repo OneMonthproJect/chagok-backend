@@ -5,7 +5,7 @@
 -- 구조: V1__init.sql (chagok-backend#5) + V2__p0_remaining.sql (chagok-backend#31). 이 파일은 테이블·칼럼을 만들지 않는다.
 -- 규칙: db/seed/README.md
 --   - DELETE·TRUNCATE·DROP·ALTER·CREATE·UPDATE 문장 없음. 다시 넣으려면 시연 DB를 새로 만든다
---   - 날짜는 모두 오늘(CURDATE()) 기준 상대값. created_at·updated_at 은 DB 기본값이 없으므로 모든 행에 직접 넣는다
+--   - 날짜는 모두 오늘(@today, 서울 날짜) 기준 상대값. created_at·updated_at 은 DB 기본값이 없으므로 모든 행에 직접 넣는다
 --   - 시연 계정 비밀번호는 BCrypt 해시로만 넣는다 (평문 없음). password_change_required = FALSE
 --   - 상태(미확인/여유/임박/도래)는 저장하지 않는다. 기록 날짜로 결과가 나온다
 --   - V2 칼럼 중 maintenance_record.updated_at 만 채운다 (created_at 과 같은 값). 점검 결과("주의")·진행중 예약은 아직 넣지 않는다 (07 7.2·7.3)
@@ -35,7 +35,8 @@
 --   66카0011 오세훈   전부 미확인 (한 고객 여러 차량)                    대상 ×
 -- 7.5 기대값: 오늘 예약 2건, 오늘 연락할 고객 5명, 재점검 대상 6대, A 고객 10명·차량 11대
 
-SET @today = CURDATE();
+-- 오늘(D) = 서울 날짜 (앱의 오늘과 같음). CURDATE()는 MySQL 세션 시간대를 따르므로 쓰지 않는다 (07 7장, chagok-docs#110)
+SET @today = DATE(CONVERT_TZ(UTC_TIMESTAMP(), '+00:00', '+09:00'));
 SET @created_shop = TIMESTAMP(@today - INTERVAL 38 MONTH, '09:00:00');
 SET @created_customer = TIMESTAMP(@today - INTERVAL 37 MONTH, '09:00:00');
 -- 비밀번호 1234 의 BCrypt 해시 (Spring BCryptPasswordEncoder, strength 10)

@@ -8,10 +8,13 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
+import com.wanted.chagok.domain.customer.api.CustomerReader;
+import com.wanted.chagok.domain.item.api.ItemReader;
 import com.wanted.chagok.domain.reservation.api.ReservationRef;
 import com.wanted.chagok.domain.reservation.dto.ReservationResponse;
 import com.wanted.chagok.domain.reservation.entity.Reservation;
 import com.wanted.chagok.domain.reservation.entity.ReservationStatus;
+import com.wanted.chagok.domain.reservation.repository.ReservationItemRepository;
 import com.wanted.chagok.domain.reservation.repository.ReservationRepository;
 import com.wanted.chagok.domain.reservation.service.ReservationService;
 import com.wanted.chagok.global.config.ClockConfig;
@@ -45,8 +48,17 @@ class ReservationServiceTest {
     @Mock
     private ReservationRepository repository;
 
+    @Mock
+    private ReservationItemRepository itemRepository;
+
+    @Mock
+    private CustomerReader customerReader;
+
+    @Mock
+    private ItemReader itemReader;
+
     private ReservationService service() {
-        return new ReservationService(repository, clock);
+        return new ReservationService(repository, itemRepository, customerReader, itemReader, clock);
     }
 
     private static Reservation reservation(long id, long shopId, long vehicleId, LocalDateTime at,

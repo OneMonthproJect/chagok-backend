@@ -2,6 +2,7 @@ package com.wanted.chagok.domain.item.service;
 
 import com.wanted.chagok.domain.item.api.ItemReader;
 import com.wanted.chagok.domain.item.api.ItemRef;
+import com.wanted.chagok.domain.item.dto.ItemListResponse;
 import com.wanted.chagok.domain.item.entity.ServiceItem;
 import com.wanted.chagok.domain.item.repository.ServiceItemRepository;
 import com.wanted.chagok.global.error.BusinessException;
@@ -17,7 +18,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 /**
  * {@link ItemReader} 구현 (F-MNT-01 항목). 다른 도메인은 이 클래스가 아니라 {@code item.api}만 본다.
- * 모든 조회는 {@code shopId}와 함께 한다(I-3). API 13(항목 목록)은 이어지는 PR에서 이 클래스에 더한다.
+ * 모든 조회는 {@code shopId}와 함께 한다(I-3). API 13(항목 목록)도 이 클래스가 만든다.
  */
 @Service
 @Transactional(readOnly = true)
@@ -29,6 +30,16 @@ public class ItemService implements ItemReader {
 
     public ItemService(ServiceItemRepository items) {
         this.items = items;
+    }
+
+    /**
+     * API 13. 그 정비소의 항목 전부를 {@code sortOrder} 순으로. 응답에 {@code active}가 있으므로 비활성도 싣는다
+     * (P0는 6개 모두 active, 08 13 · D-63 B01). 쓰는 항목만 필요한 호출자는 {@link #findActiveItems}.
+     */
+    public List<ItemListResponse> listItems(long shopId) {
+        return items.findByShopIdOrderBySortOrderAscIdAsc(shopId).stream()
+            .map(ItemListResponse::from)
+            .toList();
     }
 
     @Override

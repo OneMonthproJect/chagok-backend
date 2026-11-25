@@ -1,7 +1,20 @@
 package com.wanted.chagok.domain.item.dto;
 
-// [뼈대] 담당: 이영주(softy20) · 이슈: #22
-// 역할: API 13 응답
-// 선행: #20 머지 순서
-// 이 파일은 주석만 있는 자리표시자다. 담당자가 구현할 때 이 주석을 지우고 클래스로 바꾼다.
-// 어느 이슈의 파일인지(경계)는 chagok-docs/docs/etc/STARTER/08_구현_파일_소유_충돌방지.md 4장을 따른다.
+import com.wanted.chagok.domain.item.entity.ServiceItem;
+
+/** API 13 응답 {@code data[]}의 한 줄 (08 13). {@code code}는 0.4 항목 값, 주기는 07 3.6(0보다 큼). */
+public record ItemListResponse(
+    long itemId,
+    String code,
+    String name,
+    int cycleMonths,
+    int cycleKm,
+    boolean active,
+    int sortOrder
+) {
+
+    public static ItemListResponse from(ServiceItem item) {
+        return new ItemListResponse(item.getId(), item.getCode(), item.getName(), item.getCycleMonths().intValue(),
+            item.getCycleKm(), item.isActive(), item.getSortOrder().intValue());
+    }
+}

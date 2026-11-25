@@ -1,7 +1,28 @@
 package com.wanted.chagok.domain.item.controller;
 
-// [뼈대] 담당: 이영주(softy20) · 이슈: #22
-// 역할: API 13 항목 목록
-// 선행: #20 머지 순서
-// 이 파일은 주석만 있는 자리표시자다. 담당자가 구현할 때 이 주석을 지우고 클래스로 바꾼다.
-// 어느 이슈의 파일인지(경계)는 chagok-docs/docs/etc/STARTER/08_구현_파일_소유_충돌방지.md 4장을 따른다.
+import com.wanted.chagok.domain.item.dto.ItemListResponse;
+import com.wanted.chagok.domain.item.service.ItemService;
+import com.wanted.chagok.global.auth.CurrentStaff;
+import com.wanted.chagok.global.auth.LoginStaff;
+import com.wanted.chagok.global.response.ApiResponse;
+import java.util.List;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+
+/** API 13 정비 항목·주기 (08 5장 앞). 정비소는 토큰의 {@code shopId}로만 정한다(I-3, X7). */
+@RestController
+@RequestMapping("/api/items")
+public class ItemController {
+
+    private final ItemService itemService;
+
+    public ItemController(ItemService itemService) {
+        this.itemService = itemService;
+    }
+
+    @GetMapping
+    public ApiResponse<List<ItemListResponse>> list(@CurrentStaff LoginStaff staff) {
+        return ApiResponse.ok(itemService.listItems(staff.shopId()));
+    }
+}

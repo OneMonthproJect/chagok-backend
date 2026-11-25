@@ -1,7 +1,24 @@
 package com.wanted.chagok.domain.reservation.dto;
 
-// [뼈대] 담당: 김예린(paaaraaaeaaa) · 이슈: #26
-// 역할: API 16 응답
-// 선행: #21, #22
-// 이 파일은 주석만 있는 자리표시자다. 담당자가 구현할 때 이 주석을 지우고 클래스로 바꾼다.
-// 어느 이슈의 파일인지(경계)는 chagok-docs/docs/etc/STARTER/08_구현_파일_소유_충돌방지.md 4장을 따른다.
+import com.wanted.chagok.domain.reservation.entity.Reservation;
+import com.wanted.chagok.domain.reservation.entity.ReservationStatus;
+import java.time.LocalDateTime;
+
+/**
+ * API 16 예약 등록 응답 (08 16번, P0-핵심). {@code assignee}는 P0-나머지부터라 없다.
+ *
+ * @param version 새 예약이라 0에서 시작한다
+ */
+public record ReservationCreateResponse(
+        long reservationId,
+        ReservationStatus status,
+        LocalDateTime reservedAt,
+        long vehicleId,
+        int version) {
+
+    /** 저장이 끝나 {@code id}·{@code version}이 채워진 Entity로 만든다. */
+    public static ReservationCreateResponse of(Reservation reservation) {
+        return new ReservationCreateResponse(reservation.getId(), reservation.getStatus(), reservation.getReservedAt(),
+                reservation.getVehicleId(), reservation.getVersion());
+    }
+}

@@ -16,4 +16,7 @@ public interface StaffRepository extends JpaRepository<Staff, Long> {
 
     /** 이름 일괄 조회용(account.api). 다른 정비소 staff는 shopId 조건으로 빠진다 (07 I-3). */
     List<Staff> findByShopIdAndIdIn(Long shopId, Collection<Long> ids);
+
+    /** 담당 후보·colorIndex용(API 36). 그 정비소 직원 전체를 id 순으로. 다른 정비소는 shopId 조건으로 빠진다 (07 I-3). */
+    List<Staff> findByShopIdOrderByIdAsc(Long shopId);
 }

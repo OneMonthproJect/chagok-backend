@@ -207,6 +207,37 @@ public class Reservation {
     }
 
     /**
+     * 정정할 수 있는 예약인지 확인한다 (08 40번). 끝난 예약({@code COMPLETED}·{@code CANCELED}·{@code NO_SHOW})이 아니면
+     * 409 {@code INVALID_STATUS_TRANSITION}("처리 필요"인 예약의 정리는 정정이 아니라 18·20·21), 요청 {@code version}이 DB 값과 다르면
+     * 409 {@code CONCURRENT_MODIFICATION}. 순서는 {@link #assertChangeable}와 같다(상태가 먼저).
+     */
+    public void assertCorrectable(int expectedVersion) {
+        if (status != ReservationStatus.COMPLETED && status != ReservationStatus.CANCELED && status != ReservationStatus.NO_SHOW) {
+            throw new BusinessException(ErrorCode.INVALID_STATUS_TRANSITION);
+        }
+        requireVersion(expectedVersion);
+    }
+
+    /**
+     * 상태 정정 (08 40번 허용표, D-53): 취소→노쇼, 노쇼→취소, 취소→완료, 노쇼→완료. 완료에서는 어디로도 못 바꾸고(완료→취소·노쇼 R26),
+     * 허용표 밖은 모두 409 {@code INVALID_STATUS_TRANSITION}이다. 사장 전용·같은 값 제외는 service가 먼저 판정한 전제다.
+     */
+    public void correctStatus(ReservationStatus target) {
+        boolean fromCancelOrNoShow = status == ReservationStatus.CANCELED || status == ReservationStatus.NO_SHOW;
+        boolean allowed = fromCancelOrNoShow && target != status
+            && (target == ReservationStatus.CANCELED || target == ReservationStatus.NO_SHOW || target == ReservationStatus.COMPLETED);
+        if (!allowed) {
+            throw new BusinessException(ErrorCode.INVALID_STATUS_TRANSITION);
+        }
+        this.status = target;
+    }
+
+    /** 예약 메모 정정 (08 40번): 빈 문자열이면 비운다(19와 같음). 권한·기간·같은 값 제외는 service가 먼저 판정한 전제다. */
+    public void correctMemo(String memo) {
+        this.purposeMemo = memo == null || memo.isEmpty() ? null : memo;
+    }
+
+    /**
      * 담당 재배정 (08 19번, D-53). 새 담당이 그 정비소 사장·정비사인지, 마감·사유가 맞는지는 service가 먼저 확인한 값이다.
      * 수정 시각은 {@link #change}가 갱신하므로 같은 요청에서 {@code change}를 함께 불러 {@code version}이 오르게 한다.
      */

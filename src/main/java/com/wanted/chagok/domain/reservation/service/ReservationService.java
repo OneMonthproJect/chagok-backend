@@ -12,10 +12,12 @@ import com.wanted.chagok.domain.reservation.api.ReservationDetail;
 import com.wanted.chagok.domain.reservation.api.ReservationReader;
 import com.wanted.chagok.domain.reservation.api.ReservationRef;
 import com.wanted.chagok.domain.reservation.api.ReservationSummary;
+import com.wanted.chagok.domain.reservation.dto.ReservationCorrectRequest;
 import com.wanted.chagok.domain.reservation.dto.ReservationCreateRequest;
 import com.wanted.chagok.domain.reservation.dto.ReservationCreateResponse;
 import com.wanted.chagok.domain.reservation.dto.ReservationListResponse;
 import com.wanted.chagok.domain.reservation.dto.ReservationResponse;
+import com.wanted.chagok.domain.reservation.dto.ReservationRevisionListResponse;
 import com.wanted.chagok.domain.reservation.dto.ReservationStartRequest;
 import com.wanted.chagok.domain.reservation.dto.ReservationUpdateRequest;
 import com.wanted.chagok.domain.reservation.entity.Reservation;
@@ -425,6 +427,98 @@ public class ReservationService implements ReservationReader {
             .ifPresent(existing -> {
                 throw new BusinessException(ErrorCode.MECHANIC_SLOT_CONFLICT, Map.of("reservationId", existing.getId()));
             });
+    }
+
+    /** 정정(API 40)의 대상 상태 (08 40번). 예약·진행중으로 정정하는 것은 허용표에 없다. */
+    private static final Set<ReservationStatus> CORRECTABLE_STATUSES =
+        Set.of(ReservationStatus.COMPLETED, ReservationStatus.CANCELED, ReservationStatus.NO_SHOW);
+
+    /**
+     * API 40 지난 예약 정정 (04 F-RSV-10, R25~R29, X14, D-53). 순서(08 7.1 40번): 형식(400: 정정할 수 없는 상태 값) → 정비소 소유
+     * (404) → 끝난 예약인지(409) → {@code version}(409) → 권한({@link ReservationCorrectionPolicy}, 403) → 지금 값과 같은 필드를
+     * 뺀 뒤 바뀐 것이 있는지(400, 둘 다 안 보낸 요청도 여기) → 상태 허용표(409) → {@code @Version} 조건으로 저장. 하나라도 어긋나면 상태·메모·{@code version}·이력
+     * 모두 그대로다. 상태와 메모를 함께 고치면 둘 다 허용될 때만 적용하고, 이력은 {@code STATUS}·{@code MEMO} 두 행을 같은
+     * 사유·수정자로 같은 트랜잭션에 남긴다.
+     */
+    @Transactional
+    public ReservationResponse correct(LoginStaff staff, long reservationId, ReservationCorrectRequest request) {
+        ReservationStatus target = request.status();
+        if (target != null && !CORRECTABLE_STATUSES.contains(target)) {
+            throw BusinessException.invalidField("status", "정정할 수 있는 상태는 완료·취소·노쇼입니다.");
+        }
+        long shopId = staff.shopId();
+        Reservation reservation = getOwned(shopId, reservationId);
+        reservation.assertCorrectable(request.version());
+        ReservationCorrectionPolicy.requireAllowed(staff.isOwner(), staff.staffId() == reservation.getAssigneeStaffId(),
+            target != null, request.purposeMemo() != null, LocalDate.now(clock), reservation.getReservedAt().toLocalDate());
+
+        // 지금 값과 같은 필드는 바꾸는 것이 아니다 (08 40번)
+        boolean statusChanges = target != null && target != reservation.getStatus();
+        String newMemo = request.purposeMemo() == null || request.purposeMemo().isEmpty() ? null : request.purposeMemo();
+        boolean memoChanges = request.purposeMemo() != null && !Objects.equals(newMemo, reservation.getPurposeMemo());
+        if (!statusChanges && !memoChanges) {
+            throw BusinessException.invalidField(target != null ? "status" : "purposeMemo", "바뀐 항목이 없습니다.");
+        }
+
+        ReservationStatus prevStatus = reservation.getStatus();
+        String prevMemo = reservation.getPurposeMemo();
+        if (statusChanges) {
+            reservation.correctStatus(target); // 허용표 밖이면 여기서 409 — 메모는 아직 바뀌지 않았다
+        }
+        if (memoChanges) {
+            reservation.correctMemo(request.purposeMemo());
+        }
+        reservationRepository.saveAndFlush(reservation);
+
+        String reason = request.reason() == null || request.reason().isBlank() ? null : request.reason();
+        if (statusChanges) {
+            reservationRevisionRepository.save(ReservationRevision.statusCorrected(
+                shopId, reservation.getId(), staff.staffId(), reason, prevStatus, target));
+        }
+        if (memoChanges) {
+            reservationRevisionRepository.save(ReservationRevision.memoCorrected(
+                shopId, reservation.getId(), staff.staffId(), reason, prevMemo, newMemo));
+        }
+        return ReservationResponse.statusChanged(reservation);
+    }
+
+    /**
+     * API 41 예약 이력 조회 (08 7.1 41번, X14). 소속 확인은 {@link #getOwned} 한 곳이라 남의 예약은 404다. 이력은
+     * {@code created_at} 오름차순, 같으면 id 순이다. 바꾼 사람·담당의 이름은 {@code account.api}로 한 번에 읽는다(N+1 방지).
+     */
+    @Transactional(readOnly = true)
+    public ReservationRevisionListResponse revisions(long shopId, long reservationId) {
+        getOwned(shopId, reservationId);
+        List<ReservationRevision> rows = reservationRevisionRepository
+            .findByShopIdAndReservationIdOrderByCreatedAtAscIdAsc(shopId, reservationId);
+        Set<Long> staffIds = new HashSet<>();
+        for (ReservationRevision r : rows) {
+            staffIds.add(r.getChangedByStaffId());
+            if (r.getPrevAssigneeId() != null) {
+                staffIds.add(r.getPrevAssigneeId());
+            }
+            if (r.getNewAssigneeId() != null) {
+                staffIds.add(r.getNewAssigneeId());
+            }
+        }
+        Map<Long, String> names = staffIds.isEmpty() ? Map.of() : staffReader.findNames(shopId, staffIds);
+        List<ReservationRevisionListResponse.Item> items = rows.stream().map(r -> {
+            ReservationRevisionListResponse.Change change = switch (r.getKind()) {
+                case STATUS -> new ReservationRevisionListResponse.Change("status",
+                    r.getPrevStatus() == null ? null : r.getPrevStatus().name(),
+                    r.getNewStatus() == null ? null : r.getNewStatus().name());
+                case MEMO -> new ReservationRevisionListResponse.Change("purposeMemo", r.getPrevMemo(), r.getNewMemo());
+                case ASSIGNEE -> new ReservationRevisionListResponse.Change("assignee",
+                    revisionPerson(r.getPrevAssigneeId(), names), revisionPerson(r.getNewAssigneeId(), names));
+            };
+            return new ReservationRevisionListResponse.Item(r.getKind(), r.getCreatedAt(),
+                revisionPerson(r.getChangedByStaffId(), names), r.getReason(), List.of(change));
+        }).toList();
+        return new ReservationRevisionListResponse(items);
+    }
+
+    private static ReservationRevisionListResponse.Person revisionPerson(Long staffId, Map<Long, String> names) {
+        return staffId == null ? null : new ReservationRevisionListResponse.Person(staffId, names.get(staffId));
     }
 
     /** 정비소 소속 확인의 한 곳. 없거나 다른 정비소 것이면 같은 404 (CONVENTIONS 4장, 08 X-규칙). */

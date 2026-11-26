@@ -181,7 +181,7 @@ class ReservationAssigneeDbTest {
         em.flush();
         em.clear();
 
-        assertConflictWith(() -> service.update(shopA, moving, new ReservationUpdateRequest(0, SLOT, null)), blocker);
+        assertConflictWith(() -> service.update(ReservationTestStaff.owner(shopA), moving, new ReservationUpdateRequest(0, SLOT, null, null, null)), blocker);
         em.clear();
         Map<String, Object> row = jdbc.queryForMap("SELECT version FROM reservation WHERE id = ?", moving);
         assertThat(((Number) row.get("version")).intValue()).isZero();
@@ -194,10 +194,10 @@ class ReservationAssigneeDbTest {
         em.flush();
         em.clear();
 
-        ReservationResponse same = service.update(shopA, id, new ReservationUpdateRequest(0, SLOT, null));
+        ReservationResponse same = service.update(ReservationTestStaff.owner(shopA), id, new ReservationUpdateRequest(0, SLOT, null, null, null));
         em.flush();
         em.clear();
-        ReservationResponse moved = service.update(shopA, id, new ReservationUpdateRequest(same.version(), SLOT.plusMinutes(30), null));
+        ReservationResponse moved = service.update(ReservationTestStaff.owner(shopA), id, new ReservationUpdateRequest(same.version(), SLOT.plusMinutes(30), null, null, null));
 
         assertThat(moved.version()).isGreaterThan(same.version());
         assertThat(moved.reservedAt()).isEqualTo(SLOT.plusMinutes(30));

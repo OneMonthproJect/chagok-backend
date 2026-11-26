@@ -33,6 +33,7 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -171,19 +172,118 @@ class MaintenanceSaveServiceTest {
         noWrites();
     }
 
-    @Test
-    @DisplayName("P0-핵심: 외부·거절 구분, 점검 결과, 외부 정비일·주행거리, 담당 지정은 모두 400이고 필드가 모두 나온다")
-    void rejectsInputsNotOpenYet() {
-        ownedVehicle(2019, 50_000);
-        VisitSaveRequest request = new VisitSaveRequest(TODAY, 1_000, null, 2L, List.of(
-            record(1, RecordType.EXTERNAL, null),
-            record(2, RecordType.DECLINE, null),
-            new RecordInput(3L, RecordType.INSPECT, null, LocalDate.parse("2026-10-01"), 500, "CAUTION")));
+    private static VisitSaveRequest withMechanic(Long mechanicId, RecordInput... rows) {
+        return new VisitSaveRequest(TODAY, 55_000, null, mechanicId, List.of(rows));
+    }
 
-        assertThatThrownBy(() -> service().saveVisit(SHOP, STAFF, VEHICLE, request))
-            .satisfies(e -> assertInvalid(e, "mechanicId", "records[0].type", "records[1].type",
-                "records[2].externalDate", "records[2].externalMileage", "records[2].inspectResult"));
-        verifyNoInteractions(items);
+    @SuppressWarnings("unchecked")
+    private List<MaintenanceRecord> savedRows() {
+        ArgumentCaptor<List<MaintenanceRecord>> captor = ArgumentCaptor.forClass(List.class);
+        verify(repository).saveAll(captor.capture());
+        return captor.getValue();
+    }
+
+    @Test
+    @DisplayName("외부: 정비일·주행거리는 외부 값으로 저장하고 출처는 고객 진술, 거절·점검은 방문일·방문 주행거리, 점검 결과는 점검에만")
+    void savesExternalDeclineInspectResult() {
+        ownedVehicle(2019, 50_000);
+        doAnswer(inv -> inv.getArgument(0)).when(repository).saveAll(any());
+        LocalDate externalDate = LocalDate.parse("2026-10-01");
+
+        VisitSaveResponse response = service().saveVisit(SHOP, STAFF, VEHICLE, withMechanic(null,
+            new RecordInput(3L, RecordType.EXTERNAL, "다른 곳에서 교체", externalDate, 48_000, null),
+            record(4, RecordType.DECLINE, "다음에 하기로 함"),
+            new RecordInput(5L, RecordType.INSPECT, null, null, null, "CAUTION")));
+
+        assertThat(response.savedCount()).isEqualTo(3);
+        List<MaintenanceRecord> rows = savedRows();
+        MaintenanceRecord external = rows.get(0);
+        assertThat(external.getRecordDate()).isEqualTo(externalDate);
+        assertThat(external.getMileage()).isEqualTo(48_000);
+        assertThat(external.getSource()).isEqualTo("CUSTOMER_STATEMENT");
+        assertThat(external.getInspectResult()).isNull();
+        MaintenanceRecord decline = rows.get(1);
+        assertThat(decline.getRecordDate()).isEqualTo(TODAY);
+        assertThat(decline.getMileage()).isEqualTo(55_000);
+        assertThat(decline.getSource()).isEqualTo("SHOP");
+        assertThat(rows.get(2).getInspectResult()).isEqualTo("CAUTION");
+        assertThat(rows).extracting(MaintenanceRecord::getVisitKey).containsOnly(response.visitKey());
+    }
+
+    @Test
+    @DisplayName("외부 주행거리는 비워도 되고(null 저장), 외부·거절만 있는 방문은 차량 연식·주행거리가 비어 있어도 저장된다")
+    void externalAndDeclineOnly_noVehicleInfoRequired() {
+        ownedVehicle(null, null);
+        doAnswer(inv -> inv.getArgument(0)).when(repository).saveAll(any());
+
+        service().saveVisit(SHOP, STAFF, VEHICLE, new VisitSaveRequest(TODAY, null, null, null, List.of(
+            new RecordInput(3L, RecordType.EXTERNAL, null, LocalDate.parse("2026-10-01"), null, null),
+            record(4, RecordType.DECLINE, null))));
+
+        assertThat(savedRows().get(0).getMileage()).isNull();
+    }
+
+    @Test
+    @DisplayName("외부에 정비일이 없으면 400(records[i].externalDate), 미래 정비일도 400, 주행거리 범위 밖도 400")
+    void externalInputRules() {
+        ownedVehicle(2019, 50_000);
+
+        assertThatThrownBy(() -> service().saveVisit(SHOP, STAFF, VEHICLE,
+            withMechanic(null, record(3, RecordType.EXTERNAL, null))))
+            .satisfies(e -> assertInvalid(e, "records[0].externalDate"));
+        assertThatThrownBy(() -> service().saveVisit(SHOP, STAFF, VEHICLE, withMechanic(null,
+            new RecordInput(3L, RecordType.EXTERNAL, null, TODAY.plusDays(1), 2_000_001, null))))
+            .satisfies(e -> assertInvalid(e, "records[0].externalDate", "records[0].externalMileage"));
+        noWrites();
+    }
+
+    @Test
+    @DisplayName("외부가 아닌 기록에 외부 정비일·주행거리를 보내면 400")
+    void externalFieldsOnlyForExternal() {
+        ownedVehicle(2019, 50_000);
+
+        assertThatThrownBy(() -> service().saveVisit(SHOP, STAFF, VEHICLE, withMechanic(null,
+            new RecordInput(1L, RecordType.REPLACE, null, LocalDate.parse("2026-10-01"), 500, null))))
+            .satisfies(e -> assertInvalid(e, "records[0].externalDate", "records[0].externalMileage"));
+        noWrites();
+    }
+
+    @Test
+    @DisplayName("점검 결과는 점검일 때만, GOOD·CAUTION만 받는다")
+    void inspectResultRules() {
+        ownedVehicle(2019, 50_000);
+
+        assertThatThrownBy(() -> service().saveVisit(SHOP, STAFF, VEHICLE, withMechanic(null,
+            new RecordInput(1L, RecordType.REPLACE, null, null, null, "GOOD"),
+            new RecordInput(2L, RecordType.DECLINE, null, null, null, "GOOD"),
+            new RecordInput(3L, RecordType.INSPECT, null, null, null, "BAD"))))
+            .satisfies(e -> assertInvalid(e, "records[0].inspectResult", "records[1].inspectResult",
+                "records[2].inspectResult"));
+        noWrites();
+    }
+
+    @Test
+    @DisplayName("담당: mechanicId가 있으면 모든 행의 담당이 되고, 없으면 저장한 계정")
+    void mechanicAssigned() {
+        ownedVehicle(2019, 50_000);
+        doAnswer(inv -> inv.getArgument(0)).when(repository).saveAll(any());
+        when(staff.findNames(SHOP, List.of(2L))).thenReturn(Map.of(2L, "정비사"));
+
+        service().saveVisit(SHOP, STAFF, VEHICLE,
+            withMechanic(2L, record(1, RecordType.REPLACE, null), record(4, RecordType.DECLINE, null)));
+
+        assertThat(savedRows()).extracting(MaintenanceRecord::getStaffId).containsOnly(2L);
+    }
+
+    @Test
+    @DisplayName("X13: mechanicId가 없는 직원·남의 정비소 직원이면 400(mechanicId)이고 저장하지 않는다")
+    void mechanicNotInShop() {
+        ownedVehicle(2019, 50_000);
+        when(staff.findNames(SHOP, List.of(99L))).thenReturn(Map.of());
+
+        assertThatThrownBy(() -> service().saveVisit(SHOP, STAFF, VEHICLE,
+            withMechanic(99L, record(1, RecordType.REPLACE, null))))
+            .satisfies(e -> assertInvalid(e, "mechanicId"));
         noWrites();
     }
 

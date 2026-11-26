@@ -29,6 +29,7 @@ import com.wanted.chagok.domain.reservation.entity.Reservation;
 import com.wanted.chagok.domain.reservation.entity.ReservationStatus;
 import com.wanted.chagok.domain.reservation.repository.ReservationItemRepository;
 import com.wanted.chagok.domain.reservation.repository.ReservationRepository;
+import com.wanted.chagok.domain.reservation.repository.ReservationRevisionRepository;
 import com.wanted.chagok.domain.reservation.service.ReservationService;
 import com.wanted.chagok.global.auth.StaffRole;
 import com.wanted.chagok.global.config.ClockConfig;
@@ -59,12 +60,13 @@ class ReservationAssigneeResponseServiceTest {
     private final ReservationItemRepository itemRepository = mock(ReservationItemRepository.class);
     private final CustomerReader customerReader = mock(CustomerReader.class);
     private final CustomerWriter customerWriter = mock(CustomerWriter.class);
+    private final ReservationRevisionRepository revisionRepository = mock(ReservationRevisionRepository.class);
     private final ItemReader itemReader = mock(ItemReader.class);
     private final StaffReader staffReader = mock(StaffReader.class);
     // 2026-11-24 15:00 (Asia/Seoul)
     private final Clock clock = Clock.fixed(Instant.parse("2026-11-24T06:00:00Z"), ClockConfig.SEOUL);
     private final ReservationService service =
-        new ReservationService(repository, itemRepository, customerReader, customerWriter, itemReader, staffReader, clock);
+        new ReservationService(repository, itemRepository, revisionRepository, customerReader, customerWriter, itemReader, staffReader, clock);
 
     private static final ReservationAssignee OWNER_VIEW = new ReservationAssignee(OWNER, "박사장", 0);
     private static final ReservationAssignee MECHANIC_VIEW = new ReservationAssignee(MECHANIC, "김정비", 1);
@@ -180,11 +182,24 @@ class ReservationAssigneeResponseServiceTest {
         Reservation r = reservation(2, 4, DAY.plusDays(2).atTime(9, 0), MECHANIC);
         when(repository.findByIdAndShopId(2L, SHOP)).thenReturn(Optional.of(r));
 
-        ReservationResponse response = service.update(SHOP, 2L,
-            new ReservationUpdateRequest(0, null, new ReservationCreateRequest.Purpose(null, null, "메모")));
+        ReservationResponse response = service.update(ReservationTestStaff.owner(SHOP), 2L,
+            new ReservationUpdateRequest(0, null, new ReservationCreateRequest.Purpose(null, null, "메모"), null, null));
 
         assertThat(response.assignee()).isEqualTo(MECHANIC_VIEW);
         assertThat(response.status()).isEqualTo(ReservationStatus.RESERVED);
+    }
+
+    @Test
+    @DisplayName("19 재배정(assigneeId) 응답의 assignee는 새 담당이다 (08 19번 재배정 예시: 김정비 → 박사장)")
+    void reassignResponseCarriesNewAssignee() {
+        candidates();
+        Reservation r = reservation(2, 4, DAY.plusDays(2).atTime(9, 0), MECHANIC);
+        when(repository.findByIdAndShopId(2L, SHOP)).thenReturn(Optional.of(r));
+
+        ReservationResponse response = service.update(ReservationTestStaff.owner(SHOP), 2L,
+            new ReservationUpdateRequest(0, null, null, OWNER, null));
+
+        assertThat(response.assignee()).isEqualTo(OWNER_VIEW);
     }
 
     @Test

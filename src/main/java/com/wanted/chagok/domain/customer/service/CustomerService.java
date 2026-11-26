@@ -8,8 +8,12 @@ import com.wanted.chagok.domain.customer.api.VehicleSummary;
 import com.wanted.chagok.domain.customer.dto.CustomerCreateRequest;
 import com.wanted.chagok.domain.customer.dto.CustomerCreateResponse;
 import com.wanted.chagok.domain.customer.dto.CustomerSearchResponse;
+import com.wanted.chagok.domain.customer.dto.CustomerUpdateRequest;
+import com.wanted.chagok.domain.customer.dto.CustomerUpdateResponse;
 import com.wanted.chagok.domain.customer.dto.VehicleAddResponse;
 import com.wanted.chagok.domain.customer.dto.VehicleDetailResponse;
+import com.wanted.chagok.domain.customer.dto.VehicleUpdateRequest;
+import com.wanted.chagok.domain.customer.dto.VehicleUpdateResponse;
 import com.wanted.chagok.domain.customer.entity.Customer;
 import com.wanted.chagok.domain.customer.entity.Vehicle;
 import com.wanted.chagok.domain.customer.repository.CustomerRepository;
@@ -110,6 +114,34 @@ public class CustomerService implements CustomerReader, CustomerWriter {
     }
 
     /**
+     * API 22. 보낸 필드만 바꾼다. 순서(08 22): 정비소 소유(404) → {@code version} 일치(409). 형식 검증(400)은 요청 DTO가 먼저 한다.
+     * 값이 모두 같으면 저장해도 바뀐 게 없어 200 그대로 {@code version}도 오르지 않는다. 읽은 뒤 저장 사이의 충돌은
+     * {@code @Version}이 잡는다(flush 때 409). flush 뒤에야 {@code version}이 올라 있다.
+     */
+    @Transactional
+    public CustomerUpdateResponse updateCustomer(long shopId, long customerId, CustomerUpdateRequest request) {
+        Customer customer = getOwned(shopId, customerId);
+        customer.requireVersion(request.version());
+        customer.update(request.name(), request.phone(), request.consent());
+        customers.saveAndFlush(customer);
+        return CustomerUpdateResponse.of(customer);
+    }
+
+    /**
+     * API 23. 순서(08 23): 정비소 소유(404) → 연식 상한(400) → {@code version} 일치(409). 방문 기록(12)이 최근 주행거리를 바꾸면
+     * {@code vehicle.version}도 올라가므로, 수정 폼을 연 사이 방문 기록이 저장되면 여기서 409다(의도된 동작).
+     */
+    @Transactional
+    public VehicleUpdateResponse updateVehicle(long shopId, long vehicleId, VehicleUpdateRequest request) {
+        Vehicle vehicle = findOwnedVehicle(shopId, vehicleId, false);
+        checkModelYearUpperBound(request.modelYear(), "modelYear");
+        vehicle.requireVersion(request.version());
+        vehicle.update(request.plateNumber(), request.model(), request.modelYear(), request.latestMileage());
+        vehicles.saveAndFlush(vehicle);
+        return VehicleUpdateResponse.of(vehicle);
+    }
+
+    /**
      * 차량이 우리 정비소 것인지 확인한다. 없거나 남의 정비소 것이면 같은 404 (D-12). 차량 소속 확인은 여기 한 곳이다.
      * {@code forUpdate}면 행을 잠가 읽는다(트랜잭션 종료까지).
      */
@@ -169,7 +201,8 @@ public class CustomerService implements CustomerReader, CustomerWriter {
             .map(v -> new VehicleRef(v.getId(), v.getCustomerId(), v.getPlateNumber(), v.getModel(), v.getModelYear(),
                 v.getLatestMileage()))
             .toList();
-        return new CustomerRef(customer.getId(), customer.getName(), customer.getPhone(), customer.isConsent(), refs);
+        return new CustomerRef(customer.getId(), customer.getName(), customer.getPhone(), customer.isConsent(), refs,
+            customer.getVersion());
     }
 
     /**

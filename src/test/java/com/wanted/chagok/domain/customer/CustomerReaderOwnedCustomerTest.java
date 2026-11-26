@@ -52,6 +52,7 @@ class CustomerReaderOwnedCustomerTest {
     private static Customer customer() {
         Customer c = Customer.register(SHOP, "오세훈", "010-0000-0010", true);
         ReflectionTestUtils.setField(c, "id", CUSTOMER);
+        ReflectionTestUtils.setField(c, "version", 3);
         return c;
     }
 
@@ -74,6 +75,7 @@ class CustomerReaderOwnedCustomerTest {
         assertThat(ref.name()).isEqualTo("오세훈");
         assertThat(ref.phone()).isEqualTo("010-0000-0010");
         assertThat(ref.consent()).isTrue();
+        assertThat(ref.version()).isEqualTo(3);
         assertThat(ref.vehicles()).containsExactly(
             new VehicleRef(10, CUSTOMER, "55차0010", "쏘나타", 2018, 97_000),
             new VehicleRef(11, CUSTOMER, "66카0011", "K3", null, null));

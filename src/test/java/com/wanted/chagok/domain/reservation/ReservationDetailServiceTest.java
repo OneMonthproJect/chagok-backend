@@ -2,8 +2,10 @@ package com.wanted.chagok.domain.reservation;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.when;
 
+import com.wanted.chagok.domain.account.api.AssigneeRef;
 import com.wanted.chagok.domain.account.api.StaffReader;
 import com.wanted.chagok.domain.customer.api.CustomerReader;
 import com.wanted.chagok.domain.customer.api.CustomerWriter;
@@ -15,6 +17,7 @@ import com.wanted.chagok.domain.reservation.entity.ReservationStatus;
 import com.wanted.chagok.domain.reservation.repository.ReservationItemRepository;
 import com.wanted.chagok.domain.reservation.repository.ReservationRepository;
 import com.wanted.chagok.domain.reservation.service.ReservationService;
+import com.wanted.chagok.global.auth.StaffRole;
 import com.wanted.chagok.global.config.ClockConfig;
 import com.wanted.chagok.global.error.BusinessException;
 import com.wanted.chagok.global.error.ErrorCode;
@@ -62,6 +65,8 @@ class ReservationDetailServiceTest {
     private StaffReader staffReader;
 
     private ReservationService service() {
+        // 이 정비소의 담당 후보는 예약 자료의 담당(7번 사장) 한 명. 응답의 assignee를 채우려고 읽는다
+        lenient().when(staffReader.findAssignees(SHOP)).thenReturn(List.of(new AssigneeRef(7L, "박사장", StaffRole.OWNER, 0)));
         return new ReservationService(repository, itemRepository, customerReader, customerWriter, itemReader, staffReader, clock);
     }
 

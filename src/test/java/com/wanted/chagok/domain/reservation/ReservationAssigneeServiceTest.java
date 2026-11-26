@@ -208,6 +208,7 @@ class ReservationAssigneeServiceTest {
     // ---------- 변경 (R18) ----------
 
     private Reservation stubOwned(long id, long assignee, LocalDateTime at) {
+        thisShopStaff(); // 응답의 assignee를 채우려고 담당 후보를 읽는다 (사장 7·정비사 8)
         Reservation current = existing(id, assignee, at, ReservationStatus.RESERVED);
         ReflectionTestUtils.setField(current, "vehicleId", 20L);
         when(repository.findByIdAndShopId(id, SHOP)).thenReturn(Optional.of(current));

@@ -13,6 +13,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.wanted.chagok.domain.reservation.api.ReservationAssignee;
 import com.wanted.chagok.domain.reservation.controller.ReservationController;
 import com.wanted.chagok.domain.reservation.dto.ReservationCreateRequest;
 import com.wanted.chagok.domain.reservation.dto.ReservationCreateResponse;
@@ -79,12 +80,13 @@ class ReservationControllerTest {
     // ---- API 15 ----
 
     @Test
-    @DisplayName("15 성공: 08 응답 모양(from·to·items[]), assignee 필드 없음, shopId는 토큰의 값으로 service에 전달 (X7·X8)")
+    @DisplayName("15 성공: 08 응답 모양(from·to·items[], 각 항목에 assignee), shopId는 토큰의 값으로 service에 전달 (X7·X8)")
     void listSuccess() throws Exception {
         LocalDate day = LocalDate.of(2026, 11, 23);
         when(service.list(3L, day, day, null)).thenReturn(new ReservationListResponse(day, day, List.of(
             new ReservationListResponse.Item(4L, LocalDateTime.of(2026, 11, 23, 15, 0), ReservationStatus.RESERVED,
-                true, 0, 10L, "55차0010", 10L, "오세훈", "010-0000-0010", "배터리"))));
+                true, 0, 10L, "55차0010", 10L, "오세훈", "010-0000-0010", "배터리",
+                new ReservationAssignee(2L, "김정비", 1)))));
 
         mvc.perform(get("/api/reservations").param("from", "2026-11-23").param("to", "2026-11-23").param("shopId", "99"))
             .andExpect(status().isOk())
@@ -102,7 +104,9 @@ class ReservationControllerTest {
             .andExpect(jsonPath("$.data.items[0].customerName").value("오세훈"))
             .andExpect(jsonPath("$.data.items[0].phone").value("010-0000-0010"))
             .andExpect(jsonPath("$.data.items[0].purposeSummary").value("배터리"))
-            .andExpect(jsonPath("$.data.items[0].assignee").doesNotExist())
+            .andExpect(jsonPath("$.data.items[0].assignee.staffId").value(2))
+            .andExpect(jsonPath("$.data.items[0].assignee.name").value("김정비"))
+            .andExpect(jsonPath("$.data.items[0].assignee.colorIndex").value(1))
             .andExpect(jsonPath("$.error").isEmpty());
         verify(service).list(3L, day, day, null);
     }
@@ -172,11 +176,11 @@ class ReservationControllerTest {
     // ---- API 16 ----
 
     @Test
-    @DisplayName("16 성공: 08 응답 모양(assignee 없음), 등록자는 토큰의 staffId·shopId, 본문의 shopId·담당은 무시 (X8·D-51)")
+    @DisplayName("16 성공: 08 P0-나머지 응답 모양(assignee 포함), 등록자는 토큰의 staffId·shopId, 본문의 shopId·담당은 무시 (X8·D-51)")
     void createSuccess() throws Exception {
         when(service.create(any(Long.class), any(Long.class), any(ReservationCreateRequest.class)))
             .thenReturn(new ReservationCreateResponse(5L, ReservationStatus.RESERVED,
-                LocalDateTime.of(2026, 11, 27, 11, 30), 1L, 0));
+                LocalDateTime.of(2026, 11, 27, 11, 30), 1L, 0, new ReservationAssignee(2L, "김정비", 1)));
 
         create("{\"vehicleId\":1,\"reservedAt\":\"2026-11-27T11:30:00\",\"shopId\":99,\"assigneeId\":2,"
             + "\"purpose\":{\"itemIds\":[1],\"other\":false,\"memo\":null}}")
@@ -187,7 +191,9 @@ class ReservationControllerTest {
             .andExpect(jsonPath("$.data.reservedAt").value("2026-11-27T11:30:00"))
             .andExpect(jsonPath("$.data.vehicleId").value(1))
             .andExpect(jsonPath("$.data.version").value(0))
-            .andExpect(jsonPath("$.data.assignee").doesNotExist())
+            .andExpect(jsonPath("$.data.assignee.staffId").value(2))
+            .andExpect(jsonPath("$.data.assignee.name").value("김정비"))
+            .andExpect(jsonPath("$.data.assignee.colorIndex").value(1))
             .andExpect(jsonPath("$.error").isEmpty());
 
         ArgumentCaptor<ReservationCreateRequest> sent = ArgumentCaptor.forClass(ReservationCreateRequest.class);
@@ -243,7 +249,7 @@ class ReservationControllerTest {
     void createInvalidShape() throws Exception {
         when(service.create(any(Long.class), any(Long.class), any(ReservationCreateRequest.class)))
             .thenReturn(new ReservationCreateResponse(5L, ReservationStatus.RESERVED,
-                LocalDateTime.of(2026, 11, 27, 11, 30), 1L, 0));
+                LocalDateTime.of(2026, 11, 27, 11, 30), 1L, 0, new ReservationAssignee(2L, "김정비", 1)));
         String memo201 = "가".repeat(201);
         create("{\"vehicleId\":1,\"reservedAt\":\"2026-11-27T11:30:00\",\"purpose\":{\"memo\":\"" + memo201 + "\"},\"assigneeId\":2}")
             .andExpect(status().isBadRequest())

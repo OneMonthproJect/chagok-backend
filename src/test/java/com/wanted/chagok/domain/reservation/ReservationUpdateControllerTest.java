@@ -12,6 +12,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.wanted.chagok.domain.reservation.api.ReservationAssignee;
 import com.wanted.chagok.domain.reservation.controller.ReservationActionController;
 import com.wanted.chagok.domain.reservation.dto.ReservationResponse;
 import com.wanted.chagok.domain.reservation.dto.ReservationUpdateRequest;
@@ -72,7 +73,8 @@ class ReservationUpdateControllerTest {
     @DisplayName("19 성공: 08 응답 모양(reservedAt 포함), shopId는 토큰의 값, 본문의 shopId·assigneeId·vehicleId는 읽지 않는다 (X8)")
     void success() throws Exception {
         when(service.update(eq(3L), eq(3L), any(ReservationUpdateRequest.class))).thenReturn(
-            new ReservationResponse(3L, ReservationStatus.RESERVED, 2L, 1, LocalDateTime.of(2026, 11, 28, 9, 0)));
+            new ReservationResponse(3L, ReservationStatus.RESERVED, 2L, 1, LocalDateTime.of(2026, 11, 28, 9, 0),
+                new ReservationAssignee(1L, "박사장", 0)));
 
         patchReservation("/api/reservations/3",
             "{\"version\":0,\"reservedAt\":\"2026-11-28T09:00:00\",\"shopId\":99,\"assigneeId\":2,\"vehicleId\":77,"
@@ -84,7 +86,9 @@ class ReservationUpdateControllerTest {
             .andExpect(jsonPath("$.data.reservedAt").value("2026-11-28T09:00:00"))
             .andExpect(jsonPath("$.data.vehicleId").value(2))
             .andExpect(jsonPath("$.data.version").value(1))
-            .andExpect(jsonPath("$.data.assignee").doesNotExist())
+            .andExpect(jsonPath("$.data.assignee.staffId").value(1))
+            .andExpect(jsonPath("$.data.assignee.name").value("박사장"))
+            .andExpect(jsonPath("$.data.assignee.colorIndex").value(0))
             .andExpect(jsonPath("$.error").isEmpty());
 
         ArgumentCaptor<ReservationUpdateRequest> sent = ArgumentCaptor.forClass(ReservationUpdateRequest.class);

@@ -58,12 +58,28 @@ class ApiResponseJsonTest {
     }
 
     @Test
-    @DisplayName("ErrorCode = 08 0.3 P0-핵심 11개, HTTP 상태 1:1")
+    @DisplayName("ErrorCode = 08 0.3 P0-핵심 11개 + P0-나머지 3개, HTTP 상태 1:1 (P1 코드는 아직 없다)")
     void errorCodesMatchSpec() {
         assertThat(ErrorCode.values()).extracting(c -> c.name() + ":" + c.status().value()).containsExactly(
             "AUTH_REQUIRED:401", "LOGIN_FAILED:401", "FORBIDDEN:403", "NOT_FOUND:404", "INVALID_INPUT:400",
             "RESERVATION_PAST_DATE:400", "RESERVATION_ACTIVE_EXISTS:409", "INVALID_STATUS_TRANSITION:409",
-            "CONFLICT:409", "CONCURRENT_MODIFICATION:409", "INTERNAL_ERROR:500");
+            "CONFLICT:409", "CONCURRENT_MODIFICATION:409", "INTERNAL_ERROR:500",
+            "MECHANIC_SLOT_CONFLICT:409", "ASSIGNEE_CHANGE_CLOSED:409", "EDIT_PERIOD_EXPIRED:403");
+    }
+
+    @Test
+    @DisplayName("P0-나머지 코드의 문구, MECHANIC_SLOT_CONFLICT는 details.reservationId를 싣는다 (08 0.2·0.3)")
+    void remainingCodesMessageAndDetails() {
+        // 08 16 JSON 예시의 message와 같다. 나머지 두 개는 08에 문구가 없어 팀원이 정한 안이다.
+        assertThat(ErrorCode.MECHANIC_SLOT_CONFLICT.message())
+            .isEqualTo("이 정비사는 해당 시각에 이미 예약이 있습니다. 다른 시각이나 다른 담당을 선택해 주세요.");
+        assertThat(ErrorCode.ASSIGNEE_CHANGE_CLOSED.message()).isEqualTo("지금은 담당 정비사를 바꿀 수 없습니다.");
+        assertThat(ErrorCode.EDIT_PERIOD_EXPIRED.message()).isEqualTo("수정할 수 있는 기간이 지났습니다.");
+        assertThat(mapper.writeValueAsString(ApiResponse.fail(ErrorCode.MECHANIC_SLOT_CONFLICT, List.of(),
+            Map.of("reservationId", 7))))
+            .contains("\"code\":\"MECHANIC_SLOT_CONFLICT\"")
+            .contains("\"fieldErrors\":[]")
+            .contains("\"details\":{\"reservationId\":7}");
     }
 
     @Test

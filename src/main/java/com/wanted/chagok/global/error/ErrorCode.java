@@ -3,10 +3,12 @@ package com.wanted.chagok.global.error;
 import org.springframework.http.HttpStatus;
 
 /**
- * 08 0.3 에러 코드와 1:1. 지금은 P0-핵심 11개만 둔다.
+ * 08 0.3 에러 코드와 1:1. 지금은 P0-핵심 11개와 P0-나머지 3개({@code MECHANIC_SLOT_CONFLICT},
+ * {@code ASSIGNEE_CHANGE_CLOSED}, {@code EDIT_PERIOD_EXPIRED})를 둔다.
  *
- * <p>P0-나머지·P1 코드({@code MECHANIC_SLOT_CONFLICT}, {@code EDIT_PERIOD_EXPIRED}, {@code SHOP_SUSPENDED} 등)는
- * 그 단계 이슈에서 08과 같은 PR로 더한다(CONVENTIONS 6장). {@code message}는 화면에 그대로 보여 줄 수 있는 한국어 문장이다.
+ * <p>P0-나머지 기능 이슈는 이 파일을 고치지 않고 여기 있는 코드를 쓴다(#45). 모자라면 #45에 추가를 요청한다.
+ * P1 코드({@code SHOP_SUSPENDED}, {@code ACCOUNT_INACTIVE} 등)는 그 단계 이슈에서 08과 같은 PR로 더한다(CONVENTIONS 6장).
+ * {@code message}는 화면에 그대로 보여 줄 수 있는 한국어 문장이다.
  */
 public enum ErrorCode {
 
@@ -20,7 +22,15 @@ public enum ErrorCode {
     INVALID_STATUS_TRANSITION(HttpStatus.CONFLICT, "지금 상태에서는 할 수 없는 변경입니다."),
     CONFLICT(HttpStatus.CONFLICT, "이미 사용 중인 값입니다."),
     CONCURRENT_MODIFICATION(HttpStatus.CONFLICT, "다른 직원이 먼저 수정했습니다. 최신 내용을 다시 불러와 주세요."),
-    INTERNAL_ERROR(HttpStatus.INTERNAL_SERVER_ERROR, "처리 중 오류가 발생했습니다. 저장되었는지 확인한 뒤 다시 시도해 주세요.");
+    INTERNAL_ERROR(HttpStatus.INTERNAL_SERVER_ERROR, "처리 중 오류가 발생했습니다. 저장되었는지 확인한 뒤 다시 시도해 주세요."),
+
+    // P0-나머지 (08 0.3, #45)
+    /** 같은 담당 + 같은 시작 시각에 유효 예약이 있음 (D-51). {@code details}에 {@code { "reservationId": n }}. */
+    MECHANIC_SLOT_CONFLICT(HttpStatus.CONFLICT, "이 정비사는 해당 시각에 이미 예약이 있습니다. 다른 시각이나 다른 담당을 선택해 주세요."),
+    /** 담당 재배정 마감(예약 날짜 전날까지)이 지났거나 지난 날짜 예약 (D-53). 진행중 예약은 INVALID_STATUS_TRANSITION. */
+    ASSIGNEE_CHANGE_CLOSED(HttpStatus.CONFLICT, "지금은 담당 정비사를 바꿀 수 없습니다."),
+    /** 정비사의 수정·정정 기간(3일) 초과 (D-53·D-55). */
+    EDIT_PERIOD_EXPIRED(HttpStatus.FORBIDDEN, "수정할 수 있는 기간이 지났습니다.");
 
     private final HttpStatus status;
     private final String message;

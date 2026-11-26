@@ -133,7 +133,7 @@ pr-check는 여기에 더해 **비밀값**(`.github/scripts/secret-scan.sh`)과 
 | 성공 응답 | `return ApiResponse.ok(data);` — `{ success, data, error: null }` (08 0.2) |
 | 업무 오류 | `throw new BusinessException(ErrorCode.NOT_FOUND)`, 화면 안내 값이 있으면 `new BusinessException(code, Map.of("reservationId", id))`, 입력 하나가 틀렸으면 `BusinessException.invalidField("reservedAt", "30분 단위로 입력해 주세요.")`. Controller에서 try/catch 하지 않는다 |
 | 표준 예외 | `@Valid` 실패·잘못된 JSON·타입 불일치·필수 파라미터 누락·405·415 → 400 `INVALID_INPUT`, 없는 경로 → 404, `@Version` 충돌 → 409 `CONCURRENT_MODIFICATION`, 그 밖 → 500(내부 정보는 응답에 없음, 서버 로그에 요청 ID와 함께). DB 제약 위반을 `CONFLICT`로 바꾸지 않는다(08 0.3 M1 결정 A) |
-| ErrorCode | 08 0.3 P0-핵심 11개. 새 코드는 08과 같은 PR에서 |
+| ErrorCode | 08 0.3 P0-핵심 11개 + P0-나머지 3개(#45). P0-나머지 기능 이슈는 이 파일을 고치지 않는다. P1 코드는 그 단계 이슈에서 08과 같은 PR로 |
 | 지금 시각 | `Clock` 빈 주입 → `LocalDate.now(clock)`. `now()` 직접 호출 금지. 테스트는 `Clock.fixed(…)` |
 | 생성·수정 시각 | Entity에 `@EntityListeners(AuditingEntityListener.class)` + `@CreatedDate`(updatable = false)·`@LastModifiedDate` (07 6.2). 값은 Clock 기준 |
 | 일시 JSON | `LocalDateTime` → `"2026-11-24T10:00:00"`(시간대·소수 초 없음), `LocalDate` → `"2026-11-24"` (08 0.1) |

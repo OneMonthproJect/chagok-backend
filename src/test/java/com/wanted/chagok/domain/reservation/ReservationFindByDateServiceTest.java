@@ -6,9 +6,13 @@ import static org.mockito.ArgumentMatchers.anyCollection;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.when;
 
+import com.wanted.chagok.domain.account.api.AssigneeRef;
+import com.wanted.chagok.domain.account.api.StaffReader;
 import com.wanted.chagok.domain.customer.api.CustomerReader;
+import com.wanted.chagok.domain.customer.api.CustomerWriter;
 import com.wanted.chagok.domain.customer.api.VehicleSummary;
 import com.wanted.chagok.domain.item.api.ItemReader;
 import com.wanted.chagok.domain.item.api.ItemRef;
@@ -18,7 +22,9 @@ import com.wanted.chagok.domain.reservation.entity.ReservationItem;
 import com.wanted.chagok.domain.reservation.entity.ReservationStatus;
 import com.wanted.chagok.domain.reservation.repository.ReservationItemRepository;
 import com.wanted.chagok.domain.reservation.repository.ReservationRepository;
+import com.wanted.chagok.domain.reservation.repository.ReservationRevisionRepository;
 import com.wanted.chagok.domain.reservation.service.ReservationService;
+import com.wanted.chagok.global.auth.StaffRole;
 import com.wanted.chagok.global.config.ClockConfig;
 import java.time.Clock;
 import java.time.Instant;
@@ -54,13 +60,23 @@ class ReservationFindByDateServiceTest {
     private ReservationItemRepository itemRepository;
 
     @Mock
+    private ReservationRevisionRepository revisionRepository;
+
+    @Mock
     private CustomerReader customerReader;
 
     @Mock
+    private CustomerWriter customerWriter;
+
+    @Mock
     private ItemReader itemReader;
+    @Mock
+    private StaffReader staffReader;
 
     private ReservationService service() {
-        return new ReservationService(repository, itemRepository, customerReader, itemReader, clock);
+        // 이 정비소의 담당 후보는 예약 자료의 담당(7번 사장) 한 명. 응답의 assignee를 채우려고 읽는다
+        lenient().when(staffReader.findAssignees(SHOP)).thenReturn(List.of(new AssigneeRef(7L, "박사장", StaffRole.OWNER, 0)));
+        return new ReservationService(repository, itemRepository, revisionRepository, customerReader, customerWriter, itemReader, staffReader, clock);
     }
 
     private static Reservation reservation(long id, long vehicleId, LocalDateTime at, ReservationStatus status,
@@ -118,6 +134,25 @@ class ReservationFindByDateServiceTest {
         assertThat(day.reservations()).hasSize(3);
         assertThat(day.reservations()).extracting("status").containsExactly("COMPLETED", "RESERVED", "CANCELED");
         // 끝난 예약은 시각이 지나도 "처리 필요"가 아니고, 아직 안 지난 16:00 RESERVED·취소도 아니다
+        assertThat(day.reservations()).extracting("needsAction").containsExactly(false, false, false);
+    }
+
+    @Test
+    @DisplayName("건수는 취소만 뺀다 — 노쇼(NO_SHOW)·진행중(IN_PROGRESS)은 세고, 시각이 지나도 \"처리 필요\"가 아니다 (08 04번, D-23)")
+    void countKeepsNoShowAndInProgress() {
+        when(repository.findInPeriod(anyLong(), any(), any()))
+            .thenReturn(List.of(
+                reservation(1, 4, LocalDateTime.of(2026, 11, 24, 10, 0), ReservationStatus.NO_SHOW, false, null),
+                reservation(2, 4, LocalDateTime.of(2026, 11, 24, 11, 0), ReservationStatus.IN_PROGRESS, false, null),
+                reservation(3, 4, LocalDateTime.of(2026, 11, 24, 12, 0), ReservationStatus.CANCELED, false, null)));
+        when(customerReader.findVehicleSummaries(anyLong(), anyCollection())).thenReturn(Map.of(
+            4L, new VehicleSummary(4, "78라0004", 40, "최지은", "010-0000-0004", true)));
+        when(itemRepository.findByShopIdAndReservationIdIn(anyLong(), anyCollection())).thenReturn(List.of());
+
+        ReservationDay day = service().findByDate(SHOP, DAY);
+
+        assertThat(day.countExcludingCancelled()).isEqualTo(2);
+        assertThat(day.reservations()).extracting("status").containsExactly("NO_SHOW", "IN_PROGRESS", "CANCELED");
         assertThat(day.reservations()).extracting("needsAction").containsExactly(false, false, false);
     }
 

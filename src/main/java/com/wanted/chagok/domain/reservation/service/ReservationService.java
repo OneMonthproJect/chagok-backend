@@ -1,9 +1,14 @@
 package com.wanted.chagok.domain.reservation.service;
 
+import com.wanted.chagok.domain.account.api.AssigneeRef;
+import com.wanted.chagok.domain.account.api.StaffReader;
 import com.wanted.chagok.domain.customer.api.CustomerReader;
+import com.wanted.chagok.domain.customer.api.CustomerWriter;
+import com.wanted.chagok.domain.customer.api.VehicleRef;
 import com.wanted.chagok.domain.customer.api.VehicleSummary;
 import com.wanted.chagok.domain.item.api.ItemReader;
 import com.wanted.chagok.domain.item.api.ItemRef;
+import com.wanted.chagok.domain.reservation.api.ReservationAssignee;
 import com.wanted.chagok.domain.reservation.api.ReservationDay;
 import com.wanted.chagok.domain.reservation.api.ReservationDetail;
 import com.wanted.chagok.domain.reservation.api.ReservationReader;
@@ -13,12 +18,16 @@ import com.wanted.chagok.domain.reservation.dto.ReservationCreateRequest;
 import com.wanted.chagok.domain.reservation.dto.ReservationCreateResponse;
 import com.wanted.chagok.domain.reservation.dto.ReservationListResponse;
 import com.wanted.chagok.domain.reservation.dto.ReservationResponse;
+import com.wanted.chagok.domain.reservation.dto.ReservationStartRequest;
 import com.wanted.chagok.domain.reservation.dto.ReservationUpdateRequest;
 import com.wanted.chagok.domain.reservation.entity.Reservation;
 import com.wanted.chagok.domain.reservation.entity.ReservationItem;
+import com.wanted.chagok.domain.reservation.entity.ReservationRevision;
 import com.wanted.chagok.domain.reservation.entity.ReservationStatus;
 import com.wanted.chagok.domain.reservation.repository.ReservationItemRepository;
 import com.wanted.chagok.domain.reservation.repository.ReservationRepository;
+import com.wanted.chagok.domain.reservation.repository.ReservationRevisionRepository;
+import com.wanted.chagok.global.auth.LoginStaff;
 import com.wanted.chagok.global.error.BusinessException;
 import com.wanted.chagok.global.error.ErrorCode;
 import java.time.Clock;
@@ -40,7 +49,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 /**
  * 예약 유스케이스. 다른 도메인 계약({@code ReservationReader})을 구현하고, 기간 조회(API 15)·등록(API 16)·
- * 방문 완료(API 18)·변경(API 19)을 한다.
+ * 방문 완료(API 18)·변경(API 19)·방문 접수(API 39)를 한다.
  * 다른 도메인은 {@code customer.api}·{@code item.api}로만 부른다 (CONVENTIONS 3장).
  */
 @Service
@@ -49,26 +58,39 @@ public class ReservationService implements ReservationReader {
     /** 08 15번: 기간은 최대 42일(월 보기 6주), 시작·끝 날짜를 모두 포함해 센다. */
     static final int MAX_PERIOD_DAYS = 42;
 
+    /** 같은 담당·같은 시작 시각을 막는 유효 예약의 상태: 예약·진행중 (08 16번, R15·R17). 취소·완료·노쇼는 막지 않는다. */
+    private static final List<ReservationStatus> SLOT_BLOCKING_STATUSES =
+        List.of(ReservationStatus.RESERVED, ReservationStatus.IN_PROGRESS);
+
     private final ReservationRepository reservationRepository;
     private final ReservationItemRepository reservationItemRepository;
+    private final ReservationRevisionRepository reservationRevisionRepository;
     private final CustomerReader customerReader;
+    private final CustomerWriter customerWriter;
     private final ItemReader itemReader;
+    private final StaffReader staffReader;
     private final Clock clock;
 
     public ReservationService(ReservationRepository reservationRepository,
                               ReservationItemRepository reservationItemRepository,
+                              ReservationRevisionRepository reservationRevisionRepository,
                               CustomerReader customerReader,
+                              CustomerWriter customerWriter,
                               ItemReader itemReader,
+                              StaffReader staffReader,
                               Clock clock) {
         this.reservationRepository = reservationRepository;
         this.reservationItemRepository = reservationItemRepository;
+        this.reservationRevisionRepository = reservationRevisionRepository;
         this.customerReader = customerReader;
+        this.customerWriter = customerWriter;
         this.itemReader = itemReader;
+        this.staffReader = staffReader;
         this.clock = clock;
     }
 
     /**
-     * 유효 예약 = {@code RESERVED} + 예약 날짜 ≥ 오늘 (D-22). 오늘은 {@code Clock}(Asia/Seoul)으로 구한다.
+     * 유효 예약 = {@code RESERVED} + 예약 날짜 ≥ 오늘 (D-22), 또는 {@code IN_PROGRESS}(날짜 무관, D-52). 오늘은 {@code Clock}(Asia/Seoul)으로 구한다.
      * 한 차량에 둘 이상이 나와도 예외 없이 가장 이른 것 하나만 남긴다(등록 때 막는 규칙이고 DB 제약은 없다).
      */
     @Override
@@ -97,7 +119,7 @@ public class ReservationService implements ReservationReader {
         List<ReservationSummary> reservations = items.stream()
             .map(i -> new ReservationSummary(i.reservationId(), i.reservedAt(), i.status().name(), i.needsAction(),
                 i.version(), i.vehicleId(), i.plateNumber(), i.customerId(), i.customerName(), i.phone(),
-                i.purposeSummary()))
+                i.purposeSummary(), i.assignee()))
             .toList();
         int active = (int) reservations.stream().filter(r -> !ReservationStatus.CANCELED.name().equals(r.status())).count();
         return new ReservationDay(active, reservations);
@@ -111,14 +133,29 @@ public class ReservationService implements ReservationReader {
         List<Long> itemIds = reservationItemRepository.findByShopIdAndReservationIdIn(shopId, List.of(r.getId())).stream()
             .map(ReservationItem::getServiceItemId)
             .toList();
+        ReservationAssignee assignee = assigneeOf(assigneesByStaffId(shopId), r);
         return new ReservationDetail(r.getId(), r.getVehicleId(), r.getReservedAt(), r.getStatus().name(),
-            r.needsAction(LocalDateTime.now(clock)), r.getVersion(), itemIds, r.isPurposeOther(), r.getPurposeMemo());
+            r.needsAction(LocalDateTime.now(clock)), r.getVersion(), itemIds, r.isPurposeOther(), r.getPurposeMemo(), assignee);
     }
 
-    /** 유효 예약 판정의 한 곳 (D-22): {@code RESERVED} + 예약 날짜 ≥ 오늘, 이른 순. 조회(14)·등록(16)·변경(19)이 같이 쓴다. */
+    /**
+     * 유효 예약 판정의 한 곳 (D-22·D-52): {@code RESERVED} + 예약 날짜 ≥ 오늘, 또는 {@code IN_PROGRESS}(날짜 무관). 이른 순.
+     * 조회(14)·등록(16)·변경(19)이 같이 쓴다. 어제 날짜의 진행중 예약도 유효 예약이다(R23).
+     * 두 쿼리({@code findByVehiclesAndStatusFrom}·{@code findByVehiclesAndStatus})는 모두 {@code shopId} 조건이 있고
+     * {@code reservedAt, id} 순이라, 합쳐도 같은 순서 기준을 지킨다.
+     */
     private List<Reservation> activeCandidates(long shopId, Collection<Long> vehicleIds) {
-        return reservationRepository.findByVehiclesAndStatusFrom(
+        List<Reservation> reserved = reservationRepository.findByVehiclesAndStatusFrom(
             shopId, vehicleIds, ReservationStatus.RESERVED, LocalDate.now(clock).atStartOfDay());
+        List<Reservation> inProgress = reservationRepository.findByVehiclesAndStatus(
+            shopId, vehicleIds, ReservationStatus.IN_PROGRESS);
+        if (inProgress.isEmpty()) {
+            return reserved;
+        }
+        List<Reservation> merged = new ArrayList<>(reserved);
+        merged.addAll(inProgress);
+        merged.sort(Comparator.comparing(Reservation::getReservedAt).thenComparing(Reservation::getId));
+        return merged;
     }
 
     /**
@@ -127,9 +164,19 @@ public class ReservationService implements ReservationReader {
      */
     @Transactional(readOnly = true)
     public ReservationListResponse list(long shopId, LocalDate from, LocalDate to) {
+        return list(shopId, from, to, null);
+    }
+
+    /**
+     * API 15 기간 조회. {@code assigneeId}가 있으면 그 담당의 예약만("내 담당만" 보기, P0-나머지). 화면 필터일 뿐이라
+     * 정비소 조건은 그대로이고, 없는·다른 정비소의 담당 id는 오류가 아니라 빈 목록이다 (08 15번).
+     */
+    @Transactional(readOnly = true)
+    public ReservationListResponse list(long shopId, LocalDate from, LocalDate to, Long assigneeId) {
         validatePeriod(from, to);
-        List<Reservation> reservations = reservationRepository.findInPeriod(
-            shopId, from.atStartOfDay(), to.plusDays(1).atStartOfDay());
+        List<Reservation> reservations = assigneeId == null
+            ? reservationRepository.findInPeriod(shopId, from.atStartOfDay(), to.plusDays(1).atStartOfDay())
+            : reservationRepository.findInPeriodByAssignee(shopId, assigneeId, from.atStartOfDay(), to.plusDays(1).atStartOfDay());
         if (reservations.isEmpty()) {
             return new ReservationListResponse(from, to, List.of());
         }
@@ -146,6 +193,7 @@ public class ReservationService implements ReservationReader {
         Map<Long, ItemRef> itemRefs = itemReader.findItems(shopId, itemIds);
 
         LocalDateTime now = LocalDateTime.now(clock);
+        Map<Long, ReservationAssignee> assignees = assigneesByStaffId(shopId);
         List<ReservationListResponse.Item> items = new ArrayList<>();
         for (Reservation r : reservations) {
             VehicleSummary vehicle = summaries.get(r.getVehicleId());
@@ -156,18 +204,20 @@ public class ReservationService implements ReservationReader {
             items.add(new ReservationListResponse.Item(
                 r.getId(), r.getReservedAt(), r.getStatus(), r.needsAction(now), r.getVersion(),
                 r.getVehicleId(), vehicle.plateNumber(), vehicle.customerId(), vehicle.customerName(), vehicle.phone(),
-                purposeSummary(r, chosenByReservation.getOrDefault(r.getId(), List.of()), itemRefs)));
+                purposeSummary(r, chosenByReservation.getOrDefault(r.getId(), List.of()), itemRefs),
+                assigneeOf(assignees, r)));
         }
         return new ReservationListResponse(from, to, items);
     }
 
     /**
-     * API 16 예약 등록 (04 F-RSV-01, R1~R4·X4·X8·X11). 08 16번의 순서: 차량 소유(404) → 입력 검증(30분 단위·항목, 400) →
-     * 날짜 ≥ 오늘(400) → 같은 차량 유효 예약 1건(409) → 저장. 예약 행과 예약 목적 행은 한 트랜잭션이다.
-     * P0-핵심은 요청에 담당이 없고 등록한 계정이 담당이다(D-51).
+     * API 16 예약 등록 (04 F-RSV-01, R1~R4·R15~R20·X4·X8·X11·X13). 08 16번의 순서: 차량 소유(404) → 입력 검증(30분 단위·항목·
+     * 담당, 400) → 날짜 ≥ 오늘(400) → 같은 차량 유효 예약 1건(409) → 같은 담당·같은 시작 시각 유효 예약(409
+     * {@code MECHANIC_SLOT_CONFLICT}) → 저장. 예약 행과 예약 목적 행은 한 트랜잭션이다.
+     * P0-나머지부터 담당은 요청의 {@code assigneeId}이고 등록한 계정({@code staffId})은 등록자로만 남는다(D-51).
      *
-     * <p>LIMIT: 같은 차량 유효 예약 확인과 저장 사이에 다른 요청이 끼어들면 둘 다 저장된다(동시 요청 잠금은 P2,
-     * changelog D-22). 같은 차량에 거의 동시에 등록하는 일이 실제로 문제가 될 때 차량 단위 잠금을 더한다.
+     * <p>LIMIT: 같은 차량 유효 예약·같은 담당 시각 확인과 저장 사이에 다른 요청이 끼어들면 둘 다 저장된다(동시 요청 잠금은 P2,
+     * changelog D-22). 같은 차량·같은 담당에 거의 동시에 등록하는 일이 실제로 문제가 될 때 잠금을 더한다.
      */
     @Transactional
     public ReservationCreateResponse create(long shopId, long staffId, ReservationCreateRequest request) {
@@ -178,23 +228,26 @@ public class ReservationService implements ReservationReader {
         requireHalfHour(reservedAt);
         List<Long> itemIds = purposeItemIds(request.purpose());
         requireValidItems(shopId, itemIds);
+        ReservationAssignee assignee = requireAssignee(shopId, request.assigneeId());
+        long assigneeId = assignee.staffId();
         requireNotPastDate(reservedAt);
         ReservationRef active = findActiveByVehicleIds(shopId, List.of(vehicleId)).get(vehicleId);
         if (active != null) {
             throw new BusinessException(ErrorCode.RESERVATION_ACTIVE_EXISTS,
                 Map.of("reservationId", active.reservationId()));
         }
+        requireNoSlotConflict(shopId, assigneeId, reservedAt, null);
 
         ReservationCreateRequest.Purpose purpose = request.purpose();
         boolean other = purpose != null && Boolean.TRUE.equals(purpose.other());
         String memo = purpose == null ? null : purpose.memo();
         Reservation saved = reservationRepository.save(
-            Reservation.register(shopId, vehicleId, reservedAt, other, memo, staffId));
+            Reservation.register(shopId, vehicleId, reservedAt, other, memo, assigneeId, staffId));
         if (!itemIds.isEmpty()) {
             reservationItemRepository.saveAll(
                 itemIds.stream().map(itemId -> ReservationItem.of(shopId, saved.getId(), itemId)).toList());
         }
-        return ReservationCreateResponse.of(saved);
+        return ReservationCreateResponse.of(saved, assignee);
     }
 
     /**
@@ -212,23 +265,76 @@ public class ReservationService implements ReservationReader {
     }
 
     /**
-     * API 19 예약 변경 (04 F-RSV-06, R7·R8·R9·R11·R14). 보낸 필드만 바꾼다. 순서(08 19번): 바꿀 필드 없음(400, 소유 확인보다 먼저) →
-     * 정비소 소유(404) → 상태 {@code RESERVED}(409) → {@code version} 일치(409) → 30분 단위(400) → 항목(400) → 날짜(400) →
-     * 같은 차량 유효 예약 1건(자기 자신 제외, 409) → 변경. 하나라도 어긋나면 아무것도 바꾸지 않는다.
-     * 날짜 규칙과 같은 차량 유효 예약 확인은 <b>일시({@code reservedAt})를 보낼 때만</b> 한다(08 19번). 예약 목적·메모만 바꿀 때는
-     * 유효 예약이 늘지 않으므로 하지 않아, 지난 날짜 예약의 메모도 다른 예약 때문에 막히지 않는다.
-     * 예약 목적 항목은 지운 뒤 다시 넣고, 그 항목만 바뀌어도 {@code version}이 오르도록 {@code Reservation.change}가 수정 시각을
-     * 갱신한다(R11). 일시·메모와 함께 바뀌어도 {@code version}은 한 번만 오른다({@code @Version}, flush의 UPDATE).
+     * API 39 방문 접수 (04 F-RSV-09, R21·X14). 순서(08 18·20과 같은 공통 순서): 정비소 소유(404) → 상태 {@code RESERVED}(409
+     * INVALID_STATUS_TRANSITION) → 요청 version 비교(409 CONCURRENT_MODIFICATION) → 차량 연식·주행거리(비어 있으면 필수, 400) →
+     * 전이 → 저장. 차량 행은 접수 때 연식·주행거리를 반영하므로 잠가서 읽는다(12번과 같은 방식). 하나라도 어긋나면 예외가 나고
+     * 트랜잭션이 되돌려져 예약 상태·{@code version}·차량 값이 그대로다. 접수 뒤 정비 기록은 별도 저장이다(05 POL-95).
      */
     @Transactional
-    public ReservationResponse update(long shopId, long reservationId, ReservationUpdateRequest request) {
-        if (!request.hasChange()) {
-            throw BusinessException.invalidField("reservedAt", "바꿀 항목을 하나 이상 보내 주세요.");
-        }
+    public ReservationResponse start(long shopId, long reservationId, ReservationStartRequest request) {
         Reservation reservation = getOwned(shopId, reservationId);
         reservation.assertChangeable(request.version());
 
-        // 검증 순서는 등록(16)과 같다: 30분 단위 → 항목 → 날짜
+        VehicleRef vehicle = customerWriter.getOwnedVehicleForVisit(shopId, reservation.getVehicleId());
+        CustomerWriter.requireVehicleInfo(vehicle, request.modelYear(), request.mileage(), "modelYear");
+        // 범위 검증과 "비어 있을 때만 채움·더 클 때만 갱신" 규칙은 customer 한 곳에 있다 (D-58)
+        customerWriter.applyVisit(shopId, reservation.getVehicleId(), request.modelYear(), request.mileage(), "modelYear");
+
+        reservation.start(request.version());
+        reservationRepository.saveAndFlush(reservation);
+        return ReservationResponse.changed(reservation);
+    }
+
+    /**
+     * API 20 취소 (04 F-RSV-07, R10·R12·R13, X12). 순서는 18과 같다: 정비소 소유(404) → 상태 → {@code version} → 전이 →
+     * {@code @Version} 조건 저장. 하나라도 어긋나면 예외가 나고 트랜잭션이 되돌려져 상태·{@code version}이 그대로다.
+     */
+    @Transactional
+    public ReservationResponse cancel(long shopId, long reservationId, int expectedVersion) {
+        Reservation reservation = getOwned(shopId, reservationId);
+        reservation.cancel(expectedVersion);
+        reservationRepository.saveAndFlush(reservation);
+        return ReservationResponse.statusChanged(reservation);
+    }
+
+    /**
+     * API 21 노쇼 (04 F-RSV-08, R6·R10·R12·R13, X12). 18과 같은 순서에 시각 확인이 {@code version} 비교 다음에 붙는다
+     * ({@code markNoShow(now)}, 시각은 {@code Clock}).
+     */
+    @Transactional
+    public ReservationResponse markNoShow(long shopId, long reservationId, int expectedVersion) {
+        Reservation reservation = getOwned(shopId, reservationId);
+        reservation.markNoShow(expectedVersion, LocalDateTime.now(clock));
+        reservationRepository.saveAndFlush(reservation);
+        return ReservationResponse.statusChanged(reservation);
+    }
+
+    /**
+     * API 19 예약 변경 (04 F-RSV-06, R7·R8·R9·R11·R14·R18·R24). 보낸 필드만 바꾼다. 순서(08 19번): 바꿀 필드 없음(400, 소유 확인보다
+     * 먼저) → 정비소 소유(404) → 상태 {@code RESERVED}(409, 진행중도 여기서 409) → {@code version} 일치(409) → 30분 단위(400) →
+     * 항목(400) → 담당 {@code assigneeId}(400, X13) → 날짜(400) → 담당 재배정 마감·사유({@link AssigneeChangePolicy}, 409·400) →
+     * 같은 차량 유효 예약 1건(자기 자신 제외, 409) → 담당 중복(새 담당·새 시각, 자기 자신 제외, 409) → 변경.
+     * 하나라도 어긋나면 아무것도 바꾸지 않는다.
+     *
+     * <p>날짜 규칙과 같은 차량 유효 예약 확인은 <b>일시({@code reservedAt})를 보낼 때만</b> 한다(08 19번). 예약 목적·메모만 바꿀 때는
+     * 유효 예약이 늘지 않으므로 하지 않아, 지난 날짜 예약의 메모도 다른 예약 때문에 막히지 않는다. 담당 중복은 일시를 바꾸거나 담당을
+     * 바꿀 때만 본다. 예약 목적 항목은 지운 뒤 다시 넣고, 그 항목만 바뀌어도 {@code version}이 오르도록 {@code Reservation.change}가
+     * 수정 시각을 갱신한다(R11). 일시·메모와 함께 바뀌어도 {@code version}은 한 번만 오른다({@code @Version}, flush의 UPDATE).
+     *
+     * <p>재배정은 예약 날짜 전날까지(사장·정비사), 당일은 사장만·사유 필수, 지난 날짜는 불가다. 마감 기준은 변경 전 예약 날짜다.
+     * 담당이 지금과 같으면 바꾸는 것이 아니라서 마감 판정도 이력도 남기지 않고, 그 밖에 바뀐 것이 없으면 400이다(R14).
+     * 재배정은 {@code reservation_revision}에 같은 트랜잭션으로 남긴다(조회는 API 41).
+     */
+    @Transactional
+    public ReservationResponse update(LoginStaff staff, long reservationId, ReservationUpdateRequest request) {
+        if (!request.hasChange()) {
+            throw BusinessException.invalidField("reservedAt", "바꿀 항목을 하나 이상 보내 주세요.");
+        }
+        long shopId = staff.shopId();
+        Reservation reservation = getOwned(shopId, reservationId);
+        reservation.assertChangeable(request.version());
+
+        // 검증 순서는 등록(16)과 같다: 30분 단위 → 항목 → 담당 → 날짜
         LocalDateTime reservedAt = request.reservedAt();
         if (reservedAt != null) {
             requireHalfHour(reservedAt);
@@ -238,8 +344,26 @@ public class ReservationService implements ReservationReader {
         if (itemIds != null) {
             requireValidItems(shopId, itemIds);
         }
+        Long newAssignee = null;
+        if (request.assigneeId() != null) {
+            long requested = requireAssignee(shopId, request.assigneeId()).staffId();
+            // 지금 담당과 같으면 재배정이 아니다. 마감 판정·이력 없이 넘기고, 다른 바뀐 것이 없으면 아래에서 400이다
+            if (requested != reservation.getAssigneeStaffId()) {
+                newAssignee = requested;
+            }
+        }
+        if (newAssignee == null && !request.hasChangeExceptAssignee()) {
+            throw BusinessException.invalidField("assigneeId", "바뀐 항목이 없습니다. 지금 담당과 같습니다.");
+        }
         if (reservedAt != null) {
             requireNotPastDate(reservedAt);
+        }
+        if (newAssignee != null) {
+            // 근거: 08 19번·R24 — 마감 기준은 변경 전 예약 날짜(일시를 같이 보내도 바뀌기 전 날짜)
+            AssigneeChangePolicy.requireAllowed(staff.isOwner(), LocalDate.now(clock),
+                reservation.getReservedAt().toLocalDate(), request.reassignReason());
+        }
+        if (reservedAt != null) {
             // 근거: 08 19번 — 유효 예약이 둘이 되는 길은 일시를 바꿔 지난 예약을 오늘 이후로 옮기는 것뿐이다.
             // 메모·항목만 바꾸면 유효 여부가 그대로라 검사하지 않는다(지난 예약의 메모가 다른 예약 때문에 막히지 않게).
             activeCandidates(shopId, List.of(reservation.getVehicleId())).stream()
@@ -250,8 +374,18 @@ public class ReservationService implements ReservationReader {
                         Map.of("reservationId", existing.getId()));
                 });
         }
+        if (reservedAt != null || newAssignee != null) {
+            // 근거: 08 19번·R18 — 일시나 담당이 바뀌어 같은 담당·같은 시작 시각의 유효 예약과 겹치면 409(자기 자신 제외).
+            // 메모·항목만 바꿀 때는 담당·시각이 그대로라 보지 않는다
+            requireNoSlotConflict(shopId, newAssignee != null ? newAssignee : reservation.getAssigneeStaffId(),
+                reservedAt != null ? reservedAt : reservation.getReservedAt(), reservation.getId());
+        }
 
+        long prevAssignee = reservation.getAssigneeStaffId();
         reservation.change(LocalDateTime.now(clock), reservedAt, purpose == null ? null : purpose.other(), purpose == null ? null : purpose.memo());
+        if (newAssignee != null) {
+            reservation.reassignTo(newAssignee);
+        }
         if (itemIds != null) {
             reservationItemRepository.deleteAllOf(shopId, reservation.getId());
             if (!itemIds.isEmpty()) {
@@ -260,7 +394,69 @@ public class ReservationService implements ReservationReader {
             }
         }
         reservationRepository.saveAndFlush(reservation);
-        return ReservationResponse.changed(reservation);
+        if (newAssignee != null) {
+            String reason = request.reassignReason() == null || request.reassignReason().isBlank()
+                ? null : request.reassignReason();
+            reservationRevisionRepository.save(ReservationRevision.assigneeChanged(
+                shopId, reservation.getId(), staff.staffId(), reason, prevAssignee, newAssignee));
+        }
+        // 재배정했다면 이미 새 담당이 반영된 예약이므로 응답의 assignee는 새 담당이다 (08 19번 재배정 예시)
+        return ReservationResponse.changed(reservation, assigneeOf(assigneesByStaffId(shopId), reservation));
+    }
+
+    /**
+     * 08 16번 입력 검증의 담당: 요청의 {@code assigneeId}가 그 정비소의 사장·정비사여야 한다. 없음·없는 id·다른 정비소 직원은
+     * 400 {@code INVALID_INPUT}(필드 {@code assigneeId}, R19·R20·X13). 담당 후보는 {@code account.api}의 한 곳에서 가져온다.
+     */
+    // LIMIT: staff.active는 P1(V3)이라 지금은 모든 직원이 활성이다(08 8행). P1에서 비활성 직원은 후보에서 빠져 여기서도 거절된다
+    private ReservationAssignee requireAssignee(long shopId, Long assigneeId) {
+        if (assigneeId == null) {
+            throw BusinessException.invalidField("assigneeId", "필수 입력입니다.");
+        }
+        return staffReader.findAssignees(shopId).stream()
+            .filter(a -> a.staffId() == assigneeId)
+            .findFirst()
+            .map(ReservationService::toAssignee)
+            .orElseThrow(() -> BusinessException.invalidField("assigneeId", "그 정비소의 사장·정비사를 선택해 주세요."));
+    }
+
+    /**
+     * 응답의 {@code assignee}(08 15·17·04·16·19번)를 만드는 재료: 그 정비소의 담당 후보를 staffId로 찾게 모은다. 이름과
+     * {@code colorIndex}는 {@code account.api}(API 36)와 같은 값이라 계산은 account 한 곳이고 여기서는 옮겨 담는다.
+     */
+    // LIMIT: staff.active는 P1(V3)이라 지금은 모든 직원이 담당 후보다. P1에서 비활성이 된 정비사의 과거 예약은 후보 목록에 없어
+    // 이 조회로는 이름을 못 찾아 assigneeOf가 IllegalStateException(500)을 내고, 그 예약이 한 건만 있어도 15·04·17·19 응답 전체로 번진다
+    // — 그때(P1 착수 전) 비활성 직원도 id로 조회하는 account.api 메서드를 더해야 한다(colorIndex는 비활성 포함 순번, 08 7.1)
+    private Map<Long, ReservationAssignee> assigneesByStaffId(long shopId) {
+        return staffReader.findAssignees(shopId).stream()
+            .collect(Collectors.toMap(AssigneeRef::staffId, ReservationService::toAssignee));
+    }
+
+    private static ReservationAssignee toAssignee(AssigneeRef ref) {
+        return new ReservationAssignee(ref.staffId(), ref.name(), ref.colorIndex());
+    }
+
+    /** 예약의 담당은 복합 FK로 같은 정비소 직원임이 보장된다(07). 없으면 서버 버그이므로 500으로 드러낸다. */
+    private static ReservationAssignee assigneeOf(Map<Long, ReservationAssignee> byStaffId, Reservation reservation) {
+        ReservationAssignee assignee = byStaffId.get(reservation.getAssigneeStaffId());
+        if (assignee == null) {
+            throw new IllegalStateException("예약 " + reservation.getId() + "의 담당 " + reservation.getAssigneeStaffId() + " 정보가 없다");
+        }
+        return assignee;
+    }
+
+    /**
+     * 08 16·19번 R15·R17·R18: 같은 담당이 같은 시작 시각에 예약·진행중 예약을 이미 가졌으면 409
+     * {@code MECHANIC_SLOT_CONFLICT}와 겹친 예약 번호. 같은 시각 다른 담당은 허용하고 취소·완료·노쇼는 막지 않는다.
+     * {@code excludeReservationId}는 변경할 때 자기 자신을 빼려는 값이다(등록은 null).
+     */
+    private void requireNoSlotConflict(long shopId, long assigneeId, LocalDateTime reservedAt, Long excludeReservationId) {
+        reservationRepository.findSlotConflicts(shopId, assigneeId, reservedAt, SLOT_BLOCKING_STATUSES).stream()
+            .filter(r -> !r.getId().equals(excludeReservationId))
+            .findFirst()
+            .ifPresent(existing -> {
+                throw new BusinessException(ErrorCode.MECHANIC_SLOT_CONFLICT, Map.of("reservationId", existing.getId()));
+            });
     }
 
     /** 정비소 소속 확인의 한 곳. 없거나 다른 정비소 것이면 같은 404 (CONVENTIONS 4장, 08 X-규칙). */
@@ -269,8 +465,8 @@ public class ReservationService implements ReservationReader {
             .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND));
     }
 
-    /** 08 15번: {@code from}이 {@code to}보다 늦거나, 시작·끝을 포함해 42일을 넘으면 400 {@code INVALID_INPUT}. */
-    private static void validatePeriod(LocalDate from, LocalDate to) {
+    /** 08 15번: {@code from}이 {@code to}보다 늦거나, 시작·끝을 포함해 42일을 넘으면 400 {@code INVALID_INPUT}. 월 요약(42)도 같은 규칙이라 같은 패키지에서 쓴다. */
+    static void validatePeriod(LocalDate from, LocalDate to) {
         if (from.isAfter(to)) {
             throw BusinessException.invalidField("from", "시작일은 종료일보다 늦을 수 없습니다.");
         }

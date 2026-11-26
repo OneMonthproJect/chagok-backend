@@ -71,7 +71,7 @@ class CustomerDetailServiceTest {
 
     private void givenCustomer(VehicleRef... vehicles) {
         when(customerReader.getOwnedCustomer(SHOP, CUSTOMER))
-            .thenReturn(new CustomerRef(CUSTOMER, "오세훈", "010-0000-0010", true, List.of(vehicles)));
+            .thenReturn(new CustomerRef(CUSTOMER, "오세훈", "010-0000-0010", true, List.of(vehicles), 0));
     }
 
     /** 10번 차량: 엔진오일 도래·에어클리너 임박 / 11번: 기록 없음 / 12번: 엔진오일 여유. */

@@ -78,25 +78,31 @@ public class Reservation {
     }
 
     private Reservation(long shopId, long vehicleId, LocalDateTime reservedAt, boolean purposeOther, String purposeMemo,
-                        long staffId) {
+                        long assigneeStaffId, long createdByStaffId) {
         this.shopId = shopId;
         this.vehicleId = vehicleId;
         this.reservedAt = reservedAt;
         this.status = ReservationStatus.RESERVED;
         this.purposeOther = purposeOther;
         this.purposeMemo = purposeMemo;
-        // 근거: 04 F-RSV-01, D-51 — P0-핵심은 요청에 담당이 없고 등록한 계정이 담당이다
-        this.assigneeStaffId = staffId;
-        this.createdByStaffId = staffId;
+        this.assigneeStaffId = assigneeStaffId;
+        this.createdByStaffId = createdByStaffId;
     }
 
     /**
      * 새 예약. 상태는 {@code RESERVED}, {@code version}은 저장할 때 0에서 시작한다(08 16번).
      * 30분 단위·날짜·같은 차량 유효 예약 같은 입력 검증은 service가 먼저 한다.
+     * 근거: 04 F-RSV-01, D-51 — P0-나머지부터 담당({@code assigneeStaffId})은 요청 값이고 등록자와 다를 수 있다.
      */
     public static Reservation register(long shopId, long vehicleId, LocalDateTime reservedAt, boolean purposeOther,
+                                       String purposeMemo, long assigneeStaffId, long createdByStaffId) {
+        return new Reservation(shopId, vehicleId, reservedAt, purposeOther, purposeMemo, assigneeStaffId, createdByStaffId);
+    }
+
+    /** 담당이 등록한 계정과 같은 예약(P0-핵심의 모양). 담당을 따로 고르지 않는 곳(테스트 자료 등)에서 쓴다. */
+    public static Reservation register(long shopId, long vehicleId, LocalDateTime reservedAt, boolean purposeOther,
                                        String purposeMemo, long staffId) {
-        return new Reservation(shopId, vehicleId, reservedAt, purposeOther, purposeMemo, staffId);
+        return register(shopId, vehicleId, reservedAt, purposeOther, purposeMemo, staffId, staffId);
     }
 
     /**
@@ -111,15 +117,69 @@ public class Reservation {
         if (status != ReservationStatus.RESERVED) {
             throw new BusinessException(ErrorCode.INVALID_STATUS_TRANSITION);
         }
+        requireVersion(expectedVersion);
+    }
+
+    /** 요청 {@code version}이 DB 값과 같은지 서버가 직접 비교한다 (08 18~21번). 다르면 409 {@code CONCURRENT_MODIFICATION}. */
+    private void requireVersion(int expectedVersion) {
         if (version == null || version != expectedVersion) {
             throw new BusinessException(ErrorCode.CONCURRENT_MODIFICATION);
         }
     }
 
-    /** 방문 완료 (08 18번, 04 F-RSV-04). 시각 전·후 모두 가능하다. 확인 순서는 {@link #assertChangeable}. */
+    /**
+     * 방문 완료·취소처럼 {@code RESERVED}뿐 아니라 {@code IN_PROGRESS}에서도 되는 전이의 확인 (08 18번, D-52).
+     * 순서는 {@link #assertChangeable}와 같다: 상태(409 {@code INVALID_STATUS_TRANSITION}) → {@code version}(409
+     * {@code CONCURRENT_MODIFICATION}).
+     */
+    public void assertCompletable(int expectedVersion) {
+        if (status != ReservationStatus.RESERVED && status != ReservationStatus.IN_PROGRESS) {
+            throw new BusinessException(ErrorCode.INVALID_STATUS_TRANSITION);
+        }
+        requireVersion(expectedVersion);
+    }
+
+    /** 방문 완료 (08 18번, 04 F-RSV-04). 시각 전·후 모두, 예약 또는 진행중에서 가능하다. 확인 순서는 {@link #assertCompletable}. */
     public void complete(int expectedVersion) {
-        assertChangeable(expectedVersion);
+        assertCompletable(expectedVersion);
         this.status = ReservationStatus.COMPLETED;
+    }
+
+    /**
+     * 방문 접수 (08 39번, 04 F-RSV-09, D-52): 차량이 도착해 예약이 진행중이 된다. {@code RESERVED}에서만, 시각 전·후 모두 가능하다
+     * (D-23). 확인 순서는 {@link #assertChangeable}. 진행중 예약의 변경(19)은 같은 확인에서 409로 막힌다.
+     */
+    public void start(int expectedVersion) {
+        assertChangeable(expectedVersion);
+        this.status = ReservationStatus.IN_PROGRESS;
+    }
+
+    /**
+     * 취소 (08 20번, 04 F-RSV-07). {@code RESERVED}·{@code IN_PROGRESS}에서 시각 전·후 모두 가능하고, 끝난 예약(완료·취소·노쇼)은
+     * 409 {@code INVALID_STATUS_TRANSITION}. 순서는 18과 같다: 상태 → {@code version}(409 {@code CONCURRENT_MODIFICATION}).
+     * 취소 사유는 받지 않는다 (POL-100).
+     */
+    public void cancel(int expectedVersion) {
+        assertCompletable(expectedVersion);
+        this.status = ReservationStatus.CANCELED;
+    }
+
+    /**
+     * 노쇼 (08 21번, 04 F-RSV-08, R6). {@code RESERVED}이고 예약 시각이 현재보다 이전인 예약만 가능하다. 순서: 상태 →
+     * {@code version} → 시각(아니면 409 {@code INVALID_STATUS_TRANSITION}). 시각 판정은 "처리 필요"({@link #needsAction})와 같은
+     * 기준(예약 시각이 현재보다 이전)이다.
+     *
+     * @param now 호출하는 쪽이 {@code Clock}에서 꺼내 넘긴다(Entity는 시각을 직접 읽지 않는다)
+     */
+    public void markNoShow(int expectedVersion, LocalDateTime now) {
+        if (status != ReservationStatus.RESERVED) {
+            throw new BusinessException(ErrorCode.INVALID_STATUS_TRANSITION);
+        }
+        requireVersion(expectedVersion);
+        if (!reservedAt.isBefore(now)) {
+            throw new BusinessException(ErrorCode.INVALID_STATUS_TRANSITION);
+        }
+        this.status = ReservationStatus.NO_SHOW;
     }
 
     /**
@@ -144,6 +204,14 @@ public class Reservation {
         if (purposeMemo != null) {
             this.purposeMemo = purposeMemo.isEmpty() ? null : purposeMemo;
         }
+    }
+
+    /**
+     * 담당 재배정 (08 19번, D-53). 새 담당이 그 정비소 사장·정비사인지, 마감·사유가 맞는지는 service가 먼저 확인한 값이다.
+     * 수정 시각은 {@link #change}가 갱신하므로 같은 요청에서 {@code change}를 함께 불러 {@code version}이 오르게 한다.
+     */
+    public void reassignTo(long assigneeStaffId) {
+        this.assigneeStaffId = assigneeStaffId;
     }
 
     /**

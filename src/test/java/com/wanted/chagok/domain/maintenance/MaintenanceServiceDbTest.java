@@ -146,8 +146,9 @@ class MaintenanceServiceDbTest {
 
     private void insertRecord(long shopId, long vehicleId, long itemId, String visitKey, String date, Integer mileage,
         String type, String source, long staffId, String createdAt, String memo) {
-        jdbc.update("INSERT INTO maintenance_record (shop_id, vehicle_id, service_item_id, visit_key, record_date, mileage, record_type, source, staff_id, memo, created_at) "
-            + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            shopId, vehicleId, itemId, visitKey, date, mileage, type, source, staffId, memo, createdAt);
+        jdbc.update("INSERT INTO maintenance_record (shop_id, vehicle_id, service_item_id, visit_key, record_date, mileage, record_type, source, staff_id, memo, created_at, updated_at) "
+            + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            // V2부터 updated_at NOT NULL (DEFAULT 없음): 새 기록이라 created_at과 같은 값
+            shopId, vehicleId, itemId, visitKey, date, mileage, type, source, staffId, memo, createdAt, createdAt);
     }
 }

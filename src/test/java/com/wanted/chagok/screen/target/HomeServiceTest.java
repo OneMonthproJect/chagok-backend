@@ -5,6 +5,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.wanted.chagok.domain.cycle.api.ItemStatus;
+import com.wanted.chagok.domain.reservation.api.ReservationAssignee;
 import com.wanted.chagok.domain.reservation.api.ReservationDay;
 import com.wanted.chagok.domain.reservation.api.ReservationReader;
 import com.wanted.chagok.domain.reservation.api.ReservationSummary;
@@ -62,9 +63,9 @@ class HomeServiceTest {
     @DisplayName("오늘 예약 건수·목록은 reservation 값 그대로(시각 순, 모양 15번과 같음), date는 오늘")
     void reservationsAreCarriedAsTheyAre() {
         ReservationSummary first = new ReservationSummary(1, TODAY.atTime(10, 0), "RESERVED", true, 0, 4, "78라0004", 40,
-            "최지은", "010-0000-0004", "엔진오일");
+            "최지은", "010-0000-0004", "엔진오일", new ReservationAssignee(1L, "박사장", 0));
         ReservationSummary second = new ReservationSummary(2, TODAY.atTime(14, 30), "RESERVED", true, 0, 7, "22사0007", 70,
-            "서민준", "010-0000-0007", "기타");
+            "서민준", "010-0000-0007", "기타", new ReservationAssignee(2L, "김정비", 1));
         stub(new ReservationDay(2, List.of(first, second)), List.of());
 
         HomeResponse home = service().getHome(SHOP);
@@ -87,7 +88,7 @@ class HomeServiceTest {
     @DisplayName("건수는 목록에서 다시 세지 않고 reservation이 준 값을 쓴다 (취소는 목록에 있어도 건수에서 뺀 값)")
     void countIsNotRecountedFromTheList() {
         ReservationSummary r = new ReservationSummary(1, TODAY.atTime(10, 0), "RESERVED", false, 0, 4, "78라0004", 40,
-            "최지은", "010-0000-0004", null);
+            "최지은", "010-0000-0004", null, new ReservationAssignee(1L, "박사장", 0));
         // 목록은 3줄(취소 포함)이지만 건수는 2(취소 제외)라는 reservation의 값을 그대로 쓴다
         stub(new ReservationDay(2, List.of(r, r, r)), List.of());
 

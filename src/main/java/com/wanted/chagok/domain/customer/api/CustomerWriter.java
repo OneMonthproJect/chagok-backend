@@ -1,5 +1,11 @@
 package com.wanted.chagok.domain.customer.api;
 
+import com.wanted.chagok.global.error.BusinessException;
+import com.wanted.chagok.global.error.ErrorCode;
+import com.wanted.chagok.global.response.ApiResponse.FieldErrorDetail;
+import java.util.ArrayList;
+import java.util.List;
+
 /**
  * customer가 다른 도메인에 주는 쓰기 계약 (maintenance 방문·정비 기록 저장 API 12). 읽기 계약 {@link CustomerReader}와 나눠 둔다.
  * 구현은 {@code CustomerService}. 기존 메서드는 바꾸지 않고 메서드를 더한다 (CONVENTIONS 3장).
@@ -26,4 +32,31 @@ public interface CustomerWriter {
      * </ul>
      */
     void applyVisit(long shopId, long vehicleId, Integer modelYear, Integer mileage);
+
+    /**
+     * {@link #applyVisit(long, long, Integer, Integer)}와 같되, 연식 범위 오류({@code fieldErrors})의 필드 이름을 호출하는 API의
+     * 요청 필드 이름으로 낸다. 12번(방문 기록 저장)은 {@code vehicle.modelYear}, 39번(방문 접수)은 {@code modelYear}다.
+     * 주행거리 오류의 필드는 항상 {@code mileage}.
+     */
+    void applyVisit(long shopId, long vehicleId, Integer modelYear, Integer mileage, String modelYearField);
+
+    /**
+     * 차량의 연식이나 최근 주행거리가 비어 있으면 첫 저장·접수 때 요청에 있어야 한다는 규칙의 한 곳 (D-58, 08 12·39).
+     * 차량 값이 비어 있는데 요청에도 없으면 400 {@code INVALID_INPUT}이고, 둘 다 비었으면 둘 다 알린다. 값의 범위는
+     * 여기서 보지 않는다(그건 {@code applyVisit}).
+     *
+     * @param modelYearField 연식 오류의 필드 이름 (12번은 {@code vehicle.modelYear}, 39번은 {@code modelYear})
+     */
+    static void requireVehicleInfo(VehicleRef vehicle, Integer modelYear, Integer mileage, String modelYearField) {
+        List<FieldErrorDetail> errors = new ArrayList<>();
+        if (vehicle.modelYear() == null && modelYear == null) {
+            errors.add(new FieldErrorDetail(modelYearField, "차량의 연식이 비어 있어 입력해 주세요."));
+        }
+        if (vehicle.latestMileage() == null && mileage == null) {
+            errors.add(new FieldErrorDetail("mileage", "차량의 주행거리가 비어 있어 입력해 주세요."));
+        }
+        if (!errors.isEmpty()) {
+            throw new BusinessException(ErrorCode.INVALID_INPUT, errors, null, null);
+        }
+    }
 }

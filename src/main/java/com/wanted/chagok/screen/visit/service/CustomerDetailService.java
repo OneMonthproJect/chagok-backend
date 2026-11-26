@@ -42,6 +42,6 @@ public class CustomerDetailService {
             })
             .toList();
         return new CustomerDetailResponse(customer.customerId(), customer.name(), customer.phone(), customer.consent(),
-            vehicles);
+            customer.version(), vehicles);
     }
 }

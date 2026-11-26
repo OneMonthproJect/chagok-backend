@@ -16,6 +16,7 @@ import com.wanted.chagok.domain.item.api.ItemRef;
 import com.wanted.chagok.domain.maintenance.api.MaintenanceReader;
 import com.wanted.chagok.domain.maintenance.api.MaintenanceRecordRef;
 import com.wanted.chagok.domain.maintenance.api.VisitRef;
+import com.wanted.chagok.domain.reservation.api.ReservationAssignee;
 import com.wanted.chagok.domain.reservation.api.ReservationDetail;
 import com.wanted.chagok.domain.reservation.api.ReservationReader;
 import com.wanted.chagok.global.config.ClockConfig;
@@ -68,7 +69,7 @@ class PanelServiceTest {
 
     private static ReservationDetail detail(List<Long> purposeItemIds) {
         return new ReservationDetail(RESERVATION, VEHICLE, LocalDateTime.of(2026, 11, 23, 15, 0), "RESERVED", true, 0,
-            purposeItemIds, false, null);
+            purposeItemIds, false, null, new ReservationAssignee(1L, "박사장", 0));
     }
 
     private static ItemRef item(long id, String code, String name, int months, int sortOrder) {

@@ -6,6 +6,7 @@ import java.util.List;
  * API 07 고객 상세 응답 (08 07). {@code phone}은 P0-핵심에서 전체 번호다(D-40). 차량마다 {@code dueCount}·{@code soonCount}는
  * 오늘(서버 {@code Clock}) 기준, 그 정비소가 쓰는 항목 중 도래·임박인 항목의 수이고 API 10을 주행거리 없이 부른 결과와 같은 기준이다.
  *
+ * @param version  고객 수정(22) 요청에 그대로 보내는 번호 (07 응답. 차량 목록 {@code vehicles[]}에는 없다)
  * @param vehicles 차량 id 오름차순, 차량이 없으면 빈 목록
  */
 public record CustomerDetailResponse(
@@ -13,6 +14,7 @@ public record CustomerDetailResponse(
     String name,
     String phone,
     boolean consent,
+    int version,
     List<Vehicle> vehicles
 ) {
 

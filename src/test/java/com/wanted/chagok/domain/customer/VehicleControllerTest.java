@@ -130,9 +130,9 @@ class VehicleControllerTest {
     @Test
     @DisplayName("09: 토큰의 shopId로 조회하고 08 모양(고객 연락처 전체 포함)으로 응답, 비어 있는 값은 null")
     void detail_returnsSpecShape() throws Exception {
-        when(customerService.getVehicleDetail(1L, 4L)).thenReturn(new VehicleDetailResponse(4, "78라0004", "K5", 2020, 45_000,
+        when(customerService.getVehicleDetail(1L, 4L)).thenReturn(new VehicleDetailResponse(4, "78라0004", "K5", 2020, 45_000, 3,
             new VehicleDetailResponse.CustomerInfo(4, "최지은", "010-0000-0004", true)));
-        when(customerService.getVehicleDetail(1L, 5L)).thenReturn(new VehicleDetailResponse(5, "12가0005", "K3", null, null,
+        when(customerService.getVehicleDetail(1L, 5L)).thenReturn(new VehicleDetailResponse(5, "12가0005", "K3", null, null, 0,
             new VehicleDetailResponse.CustomerInfo(4, "최지은", "010-0000-0004", true)));
 
         mvc.perform(get("/api/vehicles/4").header("Authorization", token(1, "MECHANIC")))
@@ -144,6 +144,7 @@ class VehicleControllerTest {
             .andExpect(jsonPath("$.data.model").value("K5"))
             .andExpect(jsonPath("$.data.modelYear").value(2020))
             .andExpect(jsonPath("$.data.latestMileage").value(45_000))
+            .andExpect(jsonPath("$.data.version").value(3))
             .andExpect(jsonPath("$.data.customer.customerId").value(4))
             .andExpect(jsonPath("$.data.customer.name").value("최지은"))
             .andExpect(jsonPath("$.data.customer.phone").value("010-0000-0004"))

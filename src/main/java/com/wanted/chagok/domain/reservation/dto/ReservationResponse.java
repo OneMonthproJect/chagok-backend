@@ -6,13 +6,13 @@ import com.wanted.chagok.domain.reservation.entity.ReservationStatus;
 import java.time.LocalDateTime;
 
 /**
- * 예약 상태·일시를 바꾸는 API의 응답 (08 18·19번). 18은 {@code reservedAt}이 없고 19는 있다 — 값이 null인 필드는 JSON에서 뺀다.
+ * 예약 상태·일시를 바꾸는 API의 응답 (08 18·19·39번). 18·20·21은 {@code reservedAt}이 없고 19·39는 있다 — 값이 null인 필드는 JSON에서 뺀다.
  *
  * @param reservationId 예약 번호
  * @param status        바뀐 뒤 상태
  * @param vehicleId     화면이 방문·정비 기록(S-08)을 열 때 쓴다 (18)
  * @param version       바뀐 {@code version} (요청 값 + 1)
- * @param reservedAt    19번 응답에만 있다
+ * @param reservedAt    19·39번 응답에만 있다 (39는 08이 응답 필드를 확정하기 전까지 19와 같은 모양, 08 39 ❓)
  */
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public record ReservationResponse(
@@ -28,7 +28,7 @@ public record ReservationResponse(
                 reservation.getVersion(), null);
     }
 
-    /** API 19 응답: 변경 뒤 일시를 포함한다. */
+    /** API 19·39 응답: 변경·접수 뒤 일시를 포함한다. */
     public static ReservationResponse changed(Reservation reservation) {
         return new ReservationResponse(reservation.getId(), reservation.getStatus(), reservation.getVehicleId(),
                 reservation.getVersion(), reservation.getReservedAt());

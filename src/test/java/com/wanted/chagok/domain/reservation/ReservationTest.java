@@ -156,4 +156,60 @@ class ReservationTest {
         r.change(NOW, null, null, null); // 같은 초에 다시
         assertThat(ReflectionTestUtils.getField(r, "updatedAt")).isEqualTo(NOW.plusSeconds(1));
     }
+
+    // ---- 방문 접수 (API 39, F-RSV-09) ----
+
+    @Test
+    @DisplayName("R21 맞는 version으로 방문 접수 → IN_PROGRESS (시각 전·후 구분 없음, 시각·담당은 그대로)")
+    void start() {
+        Reservation r = loaded(ReservationStatus.RESERVED, 0);
+
+        r.start(0);
+
+        assertThat(r.getStatus()).isEqualTo(ReservationStatus.IN_PROGRESS);
+        assertThat(r.getReservedAt()).isEqualTo(AT);
+        assertThat(r.getAssigneeStaffId()).isEqualTo(7L);
+    }
+
+    @Test
+    @DisplayName("방문 접수는 RESERVED에서만 — 진행중·완료·취소는 409 INVALID_STATUS_TRANSITION, 상태 그대로")
+    void startOnlyFromReserved() {
+        for (ReservationStatus s : new ReservationStatus[] {ReservationStatus.IN_PROGRESS, ReservationStatus.COMPLETED,
+            ReservationStatus.CANCELED, ReservationStatus.NO_SHOW}) {
+            Reservation r = loaded(s, 0);
+
+            assertCode(() -> r.start(0), ErrorCode.INVALID_STATUS_TRANSITION);
+            assertThat(r.getStatus()).isEqualTo(s);
+        }
+    }
+
+    @Test
+    @DisplayName("방문 접수 version이 다르면 409 CONCURRENT_MODIFICATION, 상태 확인이 먼저(R10과 같은 순서)")
+    void startVersionMismatch() {
+        Reservation r = loaded(ReservationStatus.RESERVED, 3);
+        assertCode(() -> r.start(2), ErrorCode.CONCURRENT_MODIFICATION);
+        assertThat(r.getStatus()).isEqualTo(ReservationStatus.RESERVED);
+
+        Reservation done = loaded(ReservationStatus.COMPLETED, 3);
+        assertCode(() -> done.start(2), ErrorCode.INVALID_STATUS_TRANSITION);
+    }
+
+    @Test
+    @DisplayName("R21 진행중 예약의 변경(19) 확인은 409 INVALID_STATUS_TRANSITION — 완료·취소 전이는 그대로 막히지 않는다")
+    void inProgressCannotBeChangedButCanComplete() {
+        Reservation r = loaded(ReservationStatus.IN_PROGRESS, 1);
+
+        assertCode(() -> r.assertChangeable(1), ErrorCode.INVALID_STATUS_TRANSITION);
+
+        r.complete(1);
+        assertThat(r.getStatus()).isEqualTo(ReservationStatus.COMPLETED);
+    }
+
+    @Test
+    @DisplayName("진행중은 \"처리 필요\"가 아니다 — needsAction은 RESERVED만 (D-23)")
+    void inProgressIsNotNeedsAction() {
+        Reservation r = loaded(ReservationStatus.IN_PROGRESS, 1);
+
+        assertThat(r.needsAction(AT.plusDays(1))).isFalse();
+    }
 }

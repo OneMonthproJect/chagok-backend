@@ -20,6 +20,7 @@ import com.wanted.chagok.domain.reservation.entity.ReservationItem;
 import com.wanted.chagok.domain.reservation.entity.ReservationStatus;
 import com.wanted.chagok.domain.reservation.repository.ReservationItemRepository;
 import com.wanted.chagok.domain.reservation.repository.ReservationRepository;
+import com.wanted.chagok.domain.reservation.repository.ReservationRevisionRepository;
 import com.wanted.chagok.domain.reservation.service.ReservationService;
 import com.wanted.chagok.global.config.ClockConfig;
 import java.time.Clock;
@@ -56,6 +57,9 @@ class ReservationFindByDateServiceTest {
     private ReservationItemRepository itemRepository;
 
     @Mock
+    private ReservationRevisionRepository revisionRepository;
+
+    @Mock
     private CustomerReader customerReader;
 
     @Mock
@@ -67,7 +71,7 @@ class ReservationFindByDateServiceTest {
     private StaffReader staffReader;
 
     private ReservationService service() {
-        return new ReservationService(repository, itemRepository, customerReader, customerWriter, itemReader, staffReader, clock);
+        return new ReservationService(repository, itemRepository, revisionRepository, customerReader, customerWriter, itemReader, staffReader, clock);
     }
 
     private static Reservation reservation(long id, long vehicleId, LocalDateTime at, ReservationStatus status,

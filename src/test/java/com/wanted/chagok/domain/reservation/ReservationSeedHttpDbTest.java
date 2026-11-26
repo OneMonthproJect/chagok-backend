@@ -114,7 +114,7 @@ class ReservationSeedHttpDbTest {
             // 07 7.2 시드: 78라0004는 mech_a(김정비, 정비소 직원 둘째 → colorIndex 1), 22사0007은 owner_a(박사장 → 0). API 36과 같은 값
             .andExpect(jsonPath("$.data.items[0].assignee.name").value("김정비"))
             .andExpect(jsonPath("$.data.items[0].assignee.colorIndex").value(1))
-            .andExpect(jsonPath("$.data.items[0].phone").value(org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString("*"))))
+            .andExpect(jsonPath("$.data.items[0].phone").value(org.hamcrest.Matchers.containsString("****")))
             .andExpect(jsonPath("$.data.items[1].plateNumber").value("22사0007"))
             .andExpect(jsonPath("$.data.items[1].reservedAt").value(today + "T14:30:00"))
             .andExpect(jsonPath("$.data.items[1].purposeSummary").value("기타"))

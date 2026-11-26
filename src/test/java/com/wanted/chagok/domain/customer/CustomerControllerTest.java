@@ -79,7 +79,7 @@ class CustomerControllerTest {
     void search_usesTokenShopAndReturnsSpecShape() throws Exception {
         when(customerService.search(eq(1L), eq("0001"), any(PageLimit.class)))
             .thenReturn(new CustomerSearchResponse(
-                List.of(new CustomerSearchResponse.Item(1, "김민수", "010-0000-0001", true,
+                List.of(new CustomerSearchResponse.Item(1, "김민수", "010-****-0001", true,
                     List.of(new CustomerSearchResponse.VehicleItem(1, "12가0001")))), 0, 20, 1, 1));
 
         mvc.perform(get("/api/customers").param("q", "0001").header("Authorization", token(1, "MECHANIC")))
@@ -87,7 +87,7 @@ class CustomerControllerTest {
             .andExpect(jsonPath("$.success").value(true))
             .andExpect(jsonPath("$.error").isEmpty())
             .andExpect(jsonPath("$.data.items[0].customerId").value(1))
-            .andExpect(jsonPath("$.data.items[0].phone").value("010-0000-0001"))
+            .andExpect(jsonPath("$.data.items[0].phone").value("010-****-0001"))
             .andExpect(jsonPath("$.data.items[0].consent").value(true))
             .andExpect(jsonPath("$.data.items[0].vehicles[0].plateNumber").value("12가0001"))
             .andExpect(jsonPath("$.data.page").value(0))

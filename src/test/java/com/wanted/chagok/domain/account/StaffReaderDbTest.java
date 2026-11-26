@@ -2,7 +2,9 @@ package com.wanted.chagok.domain.account;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.wanted.chagok.domain.account.api.AssigneeRef;
 import com.wanted.chagok.domain.account.api.StaffReader;
+import com.wanted.chagok.global.auth.StaffRole;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
@@ -72,6 +74,32 @@ class StaffReaderDbTest {
         assertThat(staffReader.findNames(shopId, List.of())).isEmpty();
         assertThat(staffReader.findNames(shopId, null)).isEmpty();
         assertThat(staffReader.findNames(shopId, List.of(mechanicId, mechanicId))).hasSize(1);
+    }
+
+    @Test
+    @DisplayName("담당 후보: 그 정비소 직원만 id 순서로, 다른 정비소 직원은 나오지 않는다 (API 36, 07 I-3)")
+    void assigneesAreThisShopOnlyInIdOrder() {
+        List<AssigneeRef> assignees = staffReader.findAssignees(shopId);
+
+        assertThat(assignees).containsExactly(
+            new AssigneeRef(ownerId, "박사장", StaffRole.OWNER, 0),
+            new AssigneeRef(mechanicId, "김정비", StaffRole.MECHANIC, 1));
+        assertThat(staffReader.findAssignees(otherShopId)).containsExactly(
+            new AssigneeRef(otherShopStaffId, "타정비소사람", StaffRole.MECHANIC, 0));
+        assertThat(staffReader.findAssignees(-1L)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("담당 후보 colorIndex: 다른 정비소 직원은 순번에 끼지 않고, 9번째 계정은 다시 0 (08 7.1)")
+    void assigneeColorIndexCountsOnlyThisShopAndWraps() {
+        long bigShop = insertShop("큰카센터" + suffix);
+        for (int i = 1; i <= 9; i++) {
+            insertStaff(bigShop, "t_b" + i + "_" + suffix, "직원" + i, i == 1 ? "OWNER" : "MECHANIC");
+        }
+
+        assertThat(staffReader.findAssignees(bigShop)).extracting(AssigneeRef::colorIndex)
+            .containsExactly(0, 1, 2, 3, 4, 5, 6, 7, 0);
+        assertThat(staffReader.findAssignees(shopId)).extracting(AssigneeRef::colorIndex).containsExactly(0, 1);
     }
 
     private long insertShop(String name) {

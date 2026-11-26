@@ -1,6 +1,9 @@
 package com.wanted.chagok.domain.cycle.service;
 
 import com.wanted.chagok.domain.cycle.api.BaseRecord;
+import com.wanted.chagok.domain.cycle.api.CycleNote;
+import com.wanted.chagok.domain.cycle.api.CycleNoteRecord;
+import com.wanted.chagok.domain.cycle.api.CycleNotes;
 import com.wanted.chagok.domain.cycle.api.CycleRecord;
 import com.wanted.chagok.domain.cycle.api.CycleRule;
 import com.wanted.chagok.domain.cycle.api.DueReason;
@@ -8,10 +11,13 @@ import com.wanted.chagok.domain.cycle.api.ItemCycleCalculator;
 import com.wanted.chagok.domain.cycle.api.ItemCycleResult;
 import com.wanted.chagok.domain.cycle.api.ItemStatus;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.function.Function;
+import java.util.function.ToLongFunction;
 
 /**
  * 항목 상태 계산 본체 (04 F-CYC-01). 상태 판정은 이 클래스 한 곳에서만 한다 (CONVENTIONS 4장).
@@ -23,11 +29,20 @@ public class DefaultItemCycleCalculator implements ItemCycleCalculator {
     /** 임박 기준: 오늘 + 1개월 ≥ 다음 정비일 (04 F-CYC-01, D-08 달력상 1개월). 바꾸려면 이 상수와 T 테스트만 고친다 (CONVENTIONS 9장). */
     static final int IMMINENT_MONTHS = 1;
 
-    /** 기준 기록 선택: 날짜가 가장 늦은 것, 같은 날이면 나중에 저장한 것({@code createdAt}), 그래도 같으면 {@code id}가 큰 것 (07 3.7). */
+    /**
+     * "더 최근" 순서의 단일 정의: 날짜가 늦은 것, 같은 날이면 나중에 저장한 것({@code createdAt}), 그래도 같으면 {@code id}가
+     * 큰 것 (07 3.7). 상태 계산의 기준 기록 선택과 표시 판정의 가장 최근 기록 선택이 같은 순서를 쓰도록 한 곳에만 둔다.
+     */
+    private static <T> Comparator<T> recency(
+            Function<T, LocalDate> date, Function<T, LocalDateTime> createdAt, ToLongFunction<T> id) {
+        return Comparator.comparing(date).thenComparing(createdAt).thenComparingLong(id);
+    }
+
     private static final Comparator<CycleRecord> LATEST_FIRST_ORDER =
-            Comparator.comparing(CycleRecord::date)
-                    .thenComparing(CycleRecord::createdAt)
-                    .thenComparingLong(CycleRecord::id);
+            recency(CycleRecord::date, CycleRecord::createdAt, CycleRecord::id);
+
+    private static final Comparator<CycleNoteRecord> NOTE_LATEST_FIRST_ORDER =
+            recency(CycleNoteRecord::date, CycleNoteRecord::createdAt, CycleNoteRecord::id);
 
     @Override
     public ItemCycleResult calculate(CycleRule rule, List<CycleRecord> records, LocalDate today, Integer visitMileage) {
@@ -71,5 +86,29 @@ public class DefaultItemCycleCalculator implements ItemCycleCalculator {
                 new BaseRecord(baseRecord.date(), baseRecord.mileage(), baseRecord.type()),
                 nextDueDate,
                 nextDueMileage);
+    }
+
+    @Override
+    public CycleNotes judgeNotes(List<CycleNoteRecord> records) {
+        Objects.requireNonNull(records, "records");
+
+        // 근거: 04 F-CYC-02 — 두 표시 모두 "그 항목의 가장 최근 기록" 하나만 본다. 이후 같은 항목이 다시 기록되면
+        // 가장 최근 기록이 바뀌어 앞선 표시가 사라진다 (구분 무관)
+        Optional<CycleNoteRecord> latest = records.stream().max(NOTE_LATEST_FIRST_ORDER);
+        if (latest.isEmpty()) {
+            return CycleNotes.NONE;
+        }
+        CycleNoteRecord last = latest.get();
+
+        return switch (last.kind()) {
+            // 근거: 04 F-CYC-02 "지난 점검 주의" — 가장 최근 기록이 점검이고 결과가 주의 (T15)
+            case INSPECT_CAUTION -> new CycleNotes(null, new CycleNote(last.date(), last.memo()));
+            // 근거: 04 F-CYC-02 "지난 방문 거절" — 가장 최근 기록이 거절이고 기준 기록보다 늦음 (T14). 거절은 주기를 다시
+            // 시작하지 않는 기록이라 기준 기록이 될 수 없고, 전체에서 가장 최근이므로 기준 기록보다 늦다는 조건은 이 선택에 이미
+            // 포함된다. 기준 기록이 아직 없고 거절만 있어도 표시한다(04에 정의가 없는 경우의 결정: 표시. 이때 상태는 미확인이라
+            // 14번 대상 목록에는 오르지 않는다). 상태·주기는 건드리지 않는다
+            case DECLINE -> new CycleNotes(new CycleNote(last.date(), last.memo()), null);
+            case OTHER -> CycleNotes.NONE;
+        };
     }
 }

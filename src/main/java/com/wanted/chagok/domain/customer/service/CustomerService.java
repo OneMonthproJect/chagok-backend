@@ -179,13 +179,20 @@ public class CustomerService implements CustomerReader, CustomerWriter {
     @Override
     @Transactional
     public void applyVisit(long shopId, long vehicleId, Integer modelYear, Integer mileage) {
+        applyVisit(shopId, vehicleId, modelYear, mileage, "vehicle.modelYear");
+    }
+
+    /** 연식 범위 오류의 필드 이름만 호출하는 API에 맞춘다 (규칙은 {@link CustomerWriter#applyVisit(long, long, Integer, Integer, String)}). */
+    @Override
+    @Transactional
+    public void applyVisit(long shopId, long vehicleId, Integer modelYear, Integer mileage, String modelYearField) {
         Vehicle vehicle = findOwnedVehicle(shopId, vehicleId, true);
         // 하한 1980은 DTO @Min과 여기서 모두 확인, 상한은 등록·차량 추가와 같은 헬퍼
         if (modelYear != null && modelYear < MIN_MODEL_YEAR) {
-            throw BusinessException.invalidField("vehicle.modelYear",
+            throw BusinessException.invalidField(modelYearField,
                 MIN_MODEL_YEAR + "년부터 " + (LocalDate.now(clock).getYear() + 1) + "년까지 입력할 수 있습니다.");
         }
-        checkModelYearUpperBound(modelYear, "vehicle.modelYear");
+        checkModelYearUpperBound(modelYear, modelYearField);
         if (mileage != null && (mileage < 0 || mileage > MAX_MILEAGE)) {
             throw BusinessException.invalidField("mileage", "0 이상 2,000,000 이하로 입력해 주세요.");
         }

@@ -153,6 +153,31 @@ class ReservationConcurrencyDbTest {
         }
     }
 
+    @Test
+    @DisplayName("R21·R12 같은 version 0으로 방문 접수가 동시에: 하나만 200(IN_PROGRESS, version 1), 다른 하나는 409, 진 쪽이 올리려던 주행거리는 차량에 남지 않는다")
+    void concurrentStartOnlyOneWins() throws Exception {
+        for (int round = 0; round < ROUNDS; round++) {
+            long id = newReservation(false);
+            long vehicleId = jdbc.queryForObject("SELECT vehicle_id FROM reservation WHERE id = ?", Long.class, id);
+
+            List<Outcome> results = race(
+                () -> send(post("/api/reservations/" + id + "/start"), "{\"version\":0,\"modelYear\":2019,\"mileage\":41000}"),
+                () -> send(post("/api/reservations/" + id + "/start"), "{\"version\":0,\"modelYear\":2019,\"mileage\":52000}"));
+
+            assertThat(results).extracting(Outcome::status).as("라운드 %d", round).containsExactlyInAnyOrder(200, 409);
+            Outcome loser = results.stream().filter(r -> r.status() == 409).findFirst().orElseThrow();
+            // 둘 다 읽은 뒤 부딪히면 CONCURRENT_MODIFICATION, 먼저 끝난 뒤 읽으면 INVALID_STATUS_TRANSITION (08 18·39 서버 처리 순서)
+            assertThat(loser.code()).isIn("CONCURRENT_MODIFICATION", "INVALID_STATUS_TRANSITION");
+
+            boolean firstWon = results.get(0).status() == 200;
+            Reservation saved = reservations.findById(id).orElseThrow();
+            assertThat(saved.getStatus()).isEqualTo(ReservationStatus.IN_PROGRESS);
+            assertThat(saved.getVersion()).as("라운드 %d: version은 정확히 1", round).isEqualTo(1);
+            Integer mileage = jdbc.queryForObject("SELECT latest_mileage FROM vehicle WHERE id = ?", Integer.class, vehicleId);
+            assertThat(mileage).as("라운드 %d: 진 쪽의 주행거리 변경은 되돌려진다", round).isEqualTo(firstWon ? 41000 : 52000);
+        }
+    }
+
     // ------------------------------------------------------------------ helpers
 
     private record Outcome(int status, String code) {

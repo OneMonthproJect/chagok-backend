@@ -11,6 +11,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.wanted.chagok.domain.cycle.api.BaseRecord;
 import com.wanted.chagok.domain.cycle.api.ItemStatus;
 import com.wanted.chagok.domain.maintenance.api.VisitRef;
+import com.wanted.chagok.domain.reservation.api.ReservationAssignee;
 import com.wanted.chagok.global.auth.CurrentStaff;
 import com.wanted.chagok.global.auth.LoginStaff;
 import com.wanted.chagok.global.auth.StaffRole;
@@ -62,7 +63,8 @@ class PanelControllerTest {
     private static PanelResponse panel() {
         return new PanelResponse(
             new PanelResponse.ReservationBlock(4L, LocalDateTime.of(2026, 11, 23, 15, 0), "RESERVED", true, 0,
-                new PanelResponse.Purpose(List.of(new PanelResponse.PurposeItem(6L, "배터리")), false, null)),
+                new PanelResponse.Purpose(List.of(new PanelResponse.PurposeItem(6L, "배터리")), false, null),
+                new ReservationAssignee(1L, "박사장", 0)),
             new PanelResponse.CustomerBlock(10L, "오세훈", "010-0000-0010", true),
             new PanelResponse.VehicleBlock(10L, "55차0010", "쏘나타", 2018, 97000),
             List.of(new VisitRef("5eed-15", LocalDate.of(2026, 10, 24), null, "김정비", List.of(
@@ -73,7 +75,7 @@ class PanelControllerTest {
     }
 
     @Test
-    @DisplayName("17 성공: 08 응답 모양, shopId는 토큰의 값, P0-핵심에는 assignee가 없다")
+    @DisplayName("17 성공: 08 응답 모양(reservation.assignee 포함), shopId는 토큰의 값")
     void success() throws Exception {
         when(service.getPanel(3L, 4L)).thenReturn(panel());
 
@@ -86,7 +88,9 @@ class PanelControllerTest {
             .andExpect(jsonPath("$.data.reservation.version").value(0))
             .andExpect(jsonPath("$.data.reservation.purpose.items[0].name").value("배터리"))
             .andExpect(jsonPath("$.data.reservation.purpose.memo").doesNotExist())
-            .andExpect(jsonPath("$.data.reservation.assignee").doesNotExist())
+            .andExpect(jsonPath("$.data.reservation.assignee.staffId").value(1))
+            .andExpect(jsonPath("$.data.reservation.assignee.name").value("박사장"))
+            .andExpect(jsonPath("$.data.reservation.assignee.colorIndex").value(0))
             .andExpect(jsonPath("$.data.customer.phone").value("010-0000-0010"))
             .andExpect(jsonPath("$.data.customer.consent").value(true))
             .andExpect(jsonPath("$.data.vehicle.latestMileage").value(97000))

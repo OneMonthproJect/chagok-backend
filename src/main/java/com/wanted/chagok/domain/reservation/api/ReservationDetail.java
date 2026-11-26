@@ -16,6 +16,7 @@ import java.util.List;
  * @param purposeItemIds 예약 목적으로 고른 항목 id. 없으면 빈 목록
  * @param purposeOther   예약 목적 "기타" 선택 여부
  * @param purposeMemo    예약 목적 메모. 없으면 null
+ * @param assignee       담당 정비사 (08 17번 {@code reservation.assignee}, P0-나머지부터). 이름·{@code colorIndex}는 reservation이 account.api로 채운다
  */
 public record ReservationDetail(
     long reservationId,
@@ -26,6 +27,7 @@ public record ReservationDetail(
     int version,
     List<Long> purposeItemIds,
     boolean purposeOther,
-    String purposeMemo
+    String purposeMemo,
+    ReservationAssignee assignee
 ) {
 }

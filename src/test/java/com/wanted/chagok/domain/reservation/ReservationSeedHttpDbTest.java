@@ -98,7 +98,7 @@ class ReservationSeedHttpDbTest {
     // ------------------------------------------------------------------ 기간 조회 (API 15) — 07 7.3·7.5, 08 15번 예시
 
     @Test
-    @DisplayName("7.5 오늘 예약 2건: 78라0004 10:00(엔진오일)·22사0007 14:30(기타), 시각 순, 연락처는 전체 번호, assignee 필드 없음")
+    @DisplayName("7.5 오늘 예약 2건: 78라0004 10:00(엔진오일)·22사0007 14:30(기타), 시각 순, 연락처는 전체 번호, 담당(assignee)이 실린다")
     void todaysTwoReservations() throws Exception {
         mvc.perform(get("/api/reservations").header("Authorization", ownerA)
                 .param("from", today.toString()).param("to", today.toString()))
@@ -111,11 +111,15 @@ class ReservationSeedHttpDbTest {
             .andExpect(jsonPath("$.data.items[0].status").value("RESERVED"))
             .andExpect(jsonPath("$.data.items[0].version").value(0))
             .andExpect(jsonPath("$.data.items[0].purposeSummary").value("엔진오일"))
-            .andExpect(jsonPath("$.data.items[0].assignee").doesNotExist())
+            // 07 7.2 시드: 78라0004는 mech_a(김정비, 정비소 직원 둘째 → colorIndex 1), 22사0007은 owner_a(박사장 → 0). API 36과 같은 값
+            .andExpect(jsonPath("$.data.items[0].assignee.name").value("김정비"))
+            .andExpect(jsonPath("$.data.items[0].assignee.colorIndex").value(1))
             .andExpect(jsonPath("$.data.items[0].phone").value(org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString("*"))))
             .andExpect(jsonPath("$.data.items[1].plateNumber").value("22사0007"))
             .andExpect(jsonPath("$.data.items[1].reservedAt").value(today + "T14:30:00"))
-            .andExpect(jsonPath("$.data.items[1].purposeSummary").value("기타"));
+            .andExpect(jsonPath("$.data.items[1].purposeSummary").value("기타"))
+            .andExpect(jsonPath("$.data.items[1].assignee.name").value("박사장"))
+            .andExpect(jsonPath("$.data.items[1].assignee.colorIndex").value(0));
     }
 
     @Test
@@ -143,7 +147,10 @@ class ReservationSeedHttpDbTest {
                 .param("from", today.minusDays(1).toString()).param("to", today.plusDays(2).toString()))
             .andExpect(jsonPath("$.data.items.length()").value(4))
             .andExpect(jsonPath("$.data.items[0].plateNumber").value("55차0010"))
-            .andExpect(jsonPath("$.data.items[3].plateNumber").value("34나0002"));
+            .andExpect(jsonPath("$.data.items[3].plateNumber").value("34나0002"))
+            .andExpect(jsonPath("$.data.items[0].assignee.name").value("박사장")) // 55차0010 어제 예약: owner_a
+            .andExpect(jsonPath("$.data.items[3].assignee.name").value("김정비")) // 34나0002 D+2 예약: mech_a, 직원 순번 1
+            .andExpect(jsonPath("$.data.items[3].assignee.colorIndex").value(1));
         mvc.perform(get("/api/reservations").header("Authorization", ownerA)
                 .param("from", today.plusDays(1).toString()).param("to", today.toString()))
             .andExpect(status().isBadRequest())

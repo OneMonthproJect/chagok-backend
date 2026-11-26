@@ -10,6 +10,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.wanted.chagok.domain.reservation.api.ReservationAssignee;
 import com.wanted.chagok.domain.reservation.controller.ReservationActionController;
 import com.wanted.chagok.domain.reservation.dto.ReservationResponse;
 import com.wanted.chagok.domain.reservation.dto.ReservationStartRequest;
@@ -69,7 +70,7 @@ class ReservationStartControllerTest {
     void startSuccess() throws Exception {
         when(service.start(3L, 5L, new ReservationStartRequest(0, 2019, 41000)))
             .thenReturn(new ReservationResponse(5L, ReservationStatus.IN_PROGRESS, 4L, 1,
-                LocalDateTime.of(2026, 11, 24, 10, 0)));
+                LocalDateTime.of(2026, 11, 24, 10, 0), null));
 
         start("/api/reservations/5/start", "{\"version\":0,\"modelYear\":2019,\"mileage\":41000}")
             .andExpect(status().isOk())
@@ -85,7 +86,7 @@ class ReservationStartControllerTest {
     @DisplayName("연식·주행거리는 선택 — version만 보내도 service로 간다 (차량에 값이 있을 때)")
     void startVersionOnly() throws Exception {
         when(service.start(3L, 5L, new ReservationStartRequest(0, null, null)))
-            .thenReturn(new ReservationResponse(5L, ReservationStatus.IN_PROGRESS, 4L, 1, null));
+            .thenReturn(new ReservationResponse(5L, ReservationStatus.IN_PROGRESS, 4L, 1, null, null));
 
         start("/api/reservations/5/start", "{\"version\":0}").andExpect(status().isOk());
 
@@ -96,7 +97,7 @@ class ReservationStartControllerTest {
     @DisplayName("요청 본문의 shopId는 무시한다 (X14) — service에는 토큰의 shopId(3)만 간다")
     void bodyShopIdIsIgnored() throws Exception {
         when(service.start(3L, 5L, new ReservationStartRequest(0, null, null)))
-            .thenReturn(new ReservationResponse(5L, ReservationStatus.IN_PROGRESS, 4L, 1, null));
+            .thenReturn(new ReservationResponse(5L, ReservationStatus.IN_PROGRESS, 4L, 1, null, null));
 
         start("/api/reservations/5/start", "{\"version\":0,\"shopId\":99}").andExpect(status().isOk());
 

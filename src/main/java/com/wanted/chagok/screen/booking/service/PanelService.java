@@ -86,6 +86,8 @@ public class PanelService {
         Map<Long, ItemRef> byId = itemReader.findItems(shopId, reservation.purposeItemIds());
         List<PanelResponse.PurposeItem> items = reservation.purposeItemIds().stream()
             .map(byId::get)
+            // 근거: 예약 목적 항목은 복합 FK(정비소·항목)로 같은 정비소의 항목임이 보장된다(07 6.2). 없는 id는 정상 데이터에는 없으므로
+            // 패널 전체를 깨뜨리지 않으려고 건너뛴다(비활성 항목은 findItems가 이름까지 돌려주므로 여기서 빠지지 않는다)
             .filter(Objects::nonNull)
             .sorted(Comparator.comparingInt(ItemRef::sortOrder))
             .map(item -> new PanelResponse.PurposeItem(item.itemId(), item.name()))

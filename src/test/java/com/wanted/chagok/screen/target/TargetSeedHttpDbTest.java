@@ -226,7 +226,9 @@ class TargetSeedHttpDbTest {
         assertThat(aRow.get("customerName")).isEqualTo("김민수");
         List<Map<String, Object>> aItems = JsonPath.read(aBody, "$.data.items[?(@.plateNumber=='12가0001')].targetItems[0]");
         assertThat(LocalDate.parse((String) aItems.get(0).get("baseDate"))).isNotEqualTo(bBase);
-        assertThat(plates(aBody)).doesNotContain("강동원");
+        // B 고객(강동원)은 A 목록에 나오지 않는다 — 차량번호가 아니라 고객명 목록으로 확인한다(차량번호 목록으로는 항상 통과한다)
+        List<String> aCustomerNames = JsonPath.read(aBody, "$.data.items[*].customerName");
+        assertThat(aCustomerNames).doesNotContain("강동원");
     }
 
     private String login(String loginId) throws Exception {

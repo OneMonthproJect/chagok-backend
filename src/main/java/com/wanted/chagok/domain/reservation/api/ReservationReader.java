@@ -1,5 +1,6 @@
 package com.wanted.chagok.domain.reservation.api;
 
+import java.time.LocalDate;
 import java.util.Collection;
 import java.util.Map;
 
@@ -36,4 +37,15 @@ public interface ReservationReader {
      * @param reservationId 예약 번호
      */
     ReservationDetail getOwnedDetail(long shopId, long reservationId);
+
+    /**
+     * 하루치 예약을 시각 순으로 돌려준다 (홈의 오늘 예약, 08 04번). 목록은 취소를 포함하고 건수는 취소를 뺀다(D-63 B05).
+     * 차량·고객 요약과 예약 목적 이름은 한 번에 가져온다(건별 호출 금지, N+1 방지). 예약이 없으면 건수 0·빈 목록.
+     *
+     * <p>LIMIT: 쪽 나누기 없이 그날 전부를 돌려준다(08 15번과 같다). 정비소·하루 예약 수십 건 이하라고 가정한다.
+     *
+     * @param shopId 로그인한 계정의 정비소 (요청 값이 아니다, 07 I-3)
+     * @param date   그 날짜 (호출하는 쪽이 {@code Clock}으로 구한 오늘 등)
+     */
+    ReservationDay findByDate(long shopId, LocalDate date);
 }

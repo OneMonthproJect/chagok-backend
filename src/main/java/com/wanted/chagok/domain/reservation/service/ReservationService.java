@@ -4,9 +4,11 @@ import com.wanted.chagok.domain.customer.api.CustomerReader;
 import com.wanted.chagok.domain.customer.api.VehicleSummary;
 import com.wanted.chagok.domain.item.api.ItemReader;
 import com.wanted.chagok.domain.item.api.ItemRef;
+import com.wanted.chagok.domain.reservation.api.ReservationDay;
 import com.wanted.chagok.domain.reservation.api.ReservationDetail;
 import com.wanted.chagok.domain.reservation.api.ReservationReader;
 import com.wanted.chagok.domain.reservation.api.ReservationRef;
+import com.wanted.chagok.domain.reservation.api.ReservationSummary;
 import com.wanted.chagok.domain.reservation.dto.ReservationCreateRequest;
 import com.wanted.chagok.domain.reservation.dto.ReservationCreateResponse;
 import com.wanted.chagok.domain.reservation.dto.ReservationListResponse;
@@ -81,6 +83,24 @@ public class ReservationService implements ReservationReader {
             active.putIfAbsent(r.getVehicleId(), new ReservationRef(r.getId(), r.getVehicleId(), r.getReservedAt()));
         }
         return active;
+    }
+
+    /**
+     * 홈의 오늘 예약(API 04)용 하루치 조회. 목록은 15번(기간 조회)의 조립을 그대로 쓴다(같은 모양, 같은 N+1 방지).
+     * 목록은 취소를 포함하고, 건수만 취소를 뺀다(D-63 B05). 방문 완료는 건수에 포함한다.
+     */
+    // LIMIT: 정비소·하루 예약 수십 건 이하 가정(08 15번과 같다, 쪽 나누기 없음) / 넘으면 쪽 나누기를 다시 정한다
+    @Override
+    @Transactional(readOnly = true)
+    public ReservationDay findByDate(long shopId, LocalDate date) {
+        var items = list(shopId, date, date).items();
+        List<ReservationSummary> reservations = items.stream()
+            .map(i -> new ReservationSummary(i.reservationId(), i.reservedAt(), i.status().name(), i.needsAction(),
+                i.version(), i.vehicleId(), i.plateNumber(), i.customerId(), i.customerName(), i.phone(),
+                i.purposeSummary()))
+            .toList();
+        int active = (int) reservations.stream().filter(r -> !ReservationStatus.CANCELED.name().equals(r.status())).count();
+        return new ReservationDay(active, reservations);
     }
 
     /** 예약 상세 패널(API 17)용 한 건 조회. 소속 확인은 {@link #getOwned} 한 곳, "처리 필요"는 Entity가 판정한다(D-23). */
@@ -193,8 +213,10 @@ public class ReservationService implements ReservationReader {
 
     /**
      * API 19 예약 변경 (04 F-RSV-06, R7·R8·R9·R11·R14). 보낸 필드만 바꾼다. 순서(08 19번): 바꿀 필드 없음(400, 소유 확인보다 먼저) →
-     * 정비소 소유(404) → 상태 {@code RESERVED}(409) → {@code version} 일치(409) → 시각·날짜(400) → 항목(400) →
+     * 정비소 소유(404) → 상태 {@code RESERVED}(409) → {@code version} 일치(409) → 30분 단위(400) → 항목(400) → 날짜(400) →
      * 같은 차량 유효 예약 1건(자기 자신 제외, 409) → 변경. 하나라도 어긋나면 아무것도 바꾸지 않는다.
+     * 날짜 규칙과 같은 차량 유효 예약 확인은 <b>일시({@code reservedAt})를 보낼 때만</b> 한다(08 19번). 예약 목적·메모만 바꿀 때는
+     * 유효 예약이 늘지 않으므로 하지 않아, 지난 날짜 예약의 메모도 다른 예약 때문에 막히지 않는다.
      * 예약 목적 항목은 지운 뒤 다시 넣고, 그 항목만 바뀌어도 {@code version}이 오르도록 {@code Reservation.change}가 수정 시각을
      * 갱신한다(R11). 일시·메모와 함께 바뀌어도 {@code version}은 한 번만 오른다({@code @Version}, flush의 UPDATE).
      */

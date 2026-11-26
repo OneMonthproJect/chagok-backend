@@ -5,6 +5,10 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.wanted.chagok.domain.customer.api.CustomerWriter;
 import java.util.Map;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -40,13 +44,16 @@ class CustomerWriterTransactionDbTest {
 
     @BeforeEach
     void data() {
-        jdbc.update("INSERT INTO shop (name, phone, status, created_at) VALUES ('트랜잭션시험정비소', '02-900-0001', 'ACTIVE', NOW())");
-        shop = jdbc.queryForObject("SELECT LAST_INSERT_ID()", Long.class);
-        jdbc.update("INSERT INTO customer (shop_id, name, phone, consent, created_at, updated_at) VALUES (?, '시험고객', '010-9000-0001', FALSE, NOW(), NOW())", shop);
-        long customer = jdbc.queryForObject("SELECT LAST_INSERT_ID()", Long.class);
-        jdbc.update("INSERT INTO vehicle (shop_id, customer_id, plate_number, model, created_at, updated_at) VALUES (?, ?, '90가0001', '아반떼', NOW(), NOW())",
-            shop, customer);
-        vehicle = jdbc.queryForObject("SELECT LAST_INSERT_ID()", Long.class);
+        // INSERT와 LAST_INSERT_ID()는 같은 연결이어야 하므로 한 트랜잭션(한 연결)으로 묶는다.
+        tx.executeWithoutResult(status -> {
+            jdbc.update("INSERT INTO shop (name, phone, status, created_at) VALUES ('트랜잭션시험정비소', '02-900-0001', 'ACTIVE', NOW())");
+            shop = jdbc.queryForObject("SELECT LAST_INSERT_ID()", Long.class);
+            jdbc.update("INSERT INTO customer (shop_id, name, phone, consent, created_at, updated_at) VALUES (?, '시험고객', '010-9000-0001', FALSE, NOW(), NOW())", shop);
+            long customer = jdbc.queryForObject("SELECT LAST_INSERT_ID()", Long.class);
+            jdbc.update("INSERT INTO vehicle (shop_id, customer_id, plate_number, model, created_at, updated_at) VALUES (?, ?, '90가0001', '아반떼', NOW(), NOW())",
+                shop, customer);
+            vehicle = jdbc.queryForObject("SELECT LAST_INSERT_ID()", Long.class);
+        });
     }
 
     @AfterEach
@@ -81,6 +88,46 @@ class CustomerWriterTransactionDbTest {
         tx.executeWithoutResult(status -> writer.applyVisit(shop, vehicle, 2019, 55_000));
 
         assertThat(row()).containsEntry("model_year", 2019).containsEntry("latest_mileage", 55_000);
+    }
+
+    @Test
+    @DisplayName("동시 저장: 방문 저장이 차량 행을 잠그면 다른 저장은 끝날 때까지 기다리고, 그 뒤에도 주행거리가 낮아지지 않는다")
+    void lockedVehicleMakesOtherSaveWaitAndKeepsHigherMileage() throws Exception {
+        java.util.concurrent.CountDownLatch locked = new java.util.concurrent.CountDownLatch(1);
+        java.util.concurrent.CountDownLatch release = new java.util.concurrent.CountDownLatch(1);
+        java.util.concurrent.ExecutorService pool = java.util.concurrent.Executors.newFixedThreadPool(2);
+        try {
+            var first = pool.submit(() -> tx.executeWithoutResult(status -> {
+                writer.getOwnedVehicleForVisit(shop, vehicle); // saveVisit의 첫 차량 조회: 행 잠금
+                locked.countDown();
+                await(release);
+                writer.applyVisit(shop, vehicle, null, 60_000);
+            }));
+            assertThat(locked.await(10, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+            var second = pool.submit(() -> tx.executeWithoutResult(status -> {
+                writer.getOwnedVehicleForVisit(shop, vehicle);
+                writer.applyVisit(shop, vehicle, null, 50_000);
+            }));
+
+            assertThatThrownBy(() -> second.get(1, java.util.concurrent.TimeUnit.SECONDS))
+                .isInstanceOf(java.util.concurrent.TimeoutException.class);
+            release.countDown();
+            first.get(10, java.util.concurrent.TimeUnit.SECONDS);
+            second.get(10, java.util.concurrent.TimeUnit.SECONDS);
+        } finally {
+            release.countDown();
+            pool.shutdownNow();
+        }
+
+        assertThat(row()).containsEntry("latest_mileage", 60_000);
+    }
+
+    private static void await(java.util.concurrent.CountDownLatch latch) {
+        try {
+            latch.await(10, java.util.concurrent.TimeUnit.SECONDS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
     }
 
     private Map<String, Object> row() {

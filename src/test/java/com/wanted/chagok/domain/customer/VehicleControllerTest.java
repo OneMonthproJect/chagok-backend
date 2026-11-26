@@ -173,5 +173,20 @@ class VehicleControllerTest {
 
         String admin = "Bearer " + TestJwts.sign(SECRET, TestJwts.admin(1, Instant.now().plusSeconds(3_600)));
         mvc.perform(get("/api/vehicles/4").header("Authorization", admin)).andExpect(status().isForbidden());
+        mvc.perform(post("/api/customers/10/vehicles").header("Authorization", admin)
+            .contentType(MediaType.APPLICATION_JSON).content("{\"plateNumber\":\"66카0011\",\"model\":\"K3\"}"))
+            .andExpect(status().isForbidden());
+    }
+
+    @Test
+    @DisplayName("08·09는 사장·정비사 모두 가능: 정비사(MECHANIC) 토큰으로 차량 추가 200, 서비스는 토큰의 shopId로 호출")
+    void mechanicCanAddVehicle() throws Exception {
+        when(customerService.addVehicle(eq(1L), eq(10L), any(CustomerCreateRequest.VehicleInput.class)))
+            .thenReturn(new VehicleAddResponse(10, 11));
+
+        mvc.perform(post("/api/customers/10/vehicles").header("Authorization", token(1, "MECHANIC"))
+                .contentType(MediaType.APPLICATION_JSON).content("{\"plateNumber\":\"66카0011\",\"model\":\"K3\"}"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.vehicleId").value(11));
     }
 }

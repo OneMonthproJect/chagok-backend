@@ -7,6 +7,12 @@ package com.wanted.chagok.domain.customer.api;
 public interface CustomerWriter {
 
     /**
+     * 방문 저장 트랜잭션의 첫 차량 조회에서 행을 잠근다. 잠금은 트랜잭션 종료까지 유지된다.
+     * 없거나 다른 정비소 차량이면 404 {@code NOT_FOUND}.
+     */
+    VehicleRef getOwnedVehicleForVisit(long shopId, long vehicleId);
+
+    /**
      * 방문·정비 기록을 저장할 때 차량에 연식과 최근 주행거리를 반영한다 (08 12, 04 F-MNT-01, D-58, 05 POL-60).
      * 호출하는 쪽의 트랜잭션에 참여하므로, 기록 저장이 실패하면 이 변경도 함께 취소된다.
      *

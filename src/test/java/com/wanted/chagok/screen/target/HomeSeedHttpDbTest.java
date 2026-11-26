@@ -106,7 +106,7 @@ class HomeSeedHttpDbTest {
     }
 
     @Test
-    @DisplayName("오늘 예약 목록: 78라0004 10:00(엔진오일)·22사0007 14:30(기타) 시각 순, 연락처는 전체 번호, 어제·D+2 예약은 나오지 않고 assignee는 없다")
+    @DisplayName("오늘 예약 목록: 78라0004 10:00(엔진오일)·22사0007 14:30(기타) 시각 순, 연락처는 전체 번호, 어제·D+2 예약은 나오지 않고 담당(assignee)이 실린다")
     void todayReservations() throws Exception {
         mvc.perform(get("/api/home").header("Authorization", ownerA))
             .andExpect(status().isOk())
@@ -118,10 +118,13 @@ class HomeSeedHttpDbTest {
             .andExpect(jsonPath("$.data.todayReservations[0].customerName").value("최지은"))
             .andExpect(jsonPath("$.data.todayReservations[0].phone").value("010-0000-0004"))
             .andExpect(jsonPath("$.data.todayReservations[0].purposeSummary").value("엔진오일"))
-            .andExpect(jsonPath("$.data.todayReservations[0].assignee").doesNotExist())
+            .andExpect(jsonPath("$.data.todayReservations[0].assignee.name").value("김정비"))
+            .andExpect(jsonPath("$.data.todayReservations[0].assignee.colorIndex").value(1))
             .andExpect(jsonPath("$.data.todayReservations[1].plateNumber").value("22사0007"))
             .andExpect(jsonPath("$.data.todayReservations[1].reservedAt").value(today + "T14:30:00"))
             .andExpect(jsonPath("$.data.todayReservations[1].purposeSummary").value("기타"))
+            .andExpect(jsonPath("$.data.todayReservations[1].assignee.name").value("박사장"))
+            .andExpect(jsonPath("$.data.todayReservations[1].assignee.colorIndex").value(0))
             .andExpect(jsonPath("$.data.todayReservations[?(@.plateNumber=='55차0010')]").isEmpty())
             .andExpect(jsonPath("$.data.todayReservations[?(@.plateNumber=='34나0002')]").isEmpty());
     }

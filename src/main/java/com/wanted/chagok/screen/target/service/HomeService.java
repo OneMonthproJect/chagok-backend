@@ -47,7 +47,7 @@ public class HomeService {
         List<HomeResponse.TodayReservation> reservations = day.reservations().stream()
             .map(r -> new HomeResponse.TodayReservation(r.reservationId(), r.reservedAt(), r.status(), r.needsAction(),
                 r.version(), r.vehicleId(), r.plateNumber(), r.customerId(), r.customerName(), r.phone(),
-                r.purposeSummary()))
+                r.purposeSummary(), r.assignee()))
             .toList();
         return new HomeResponse(today, day.countExcludingCancelled(), contactCount, reservations);
     }

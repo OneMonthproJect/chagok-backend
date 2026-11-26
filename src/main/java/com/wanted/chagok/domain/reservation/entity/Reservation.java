@@ -127,10 +127,31 @@ public class Reservation {
         }
     }
 
-    /** 방문 완료 (08 18번, 04 F-RSV-04). 시각 전·후 모두 가능하다. 확인 순서는 {@link #assertChangeable}. */
+    /**
+     * 방문 완료·취소처럼 {@code RESERVED}뿐 아니라 {@code IN_PROGRESS}에서도 되는 전이의 확인 (08 18번, D-52).
+     * 순서는 {@link #assertChangeable}와 같다: 상태(409 {@code INVALID_STATUS_TRANSITION}) → {@code version}(409
+     * {@code CONCURRENT_MODIFICATION}).
+     */
+    public void assertCompletable(int expectedVersion) {
+        if (status != ReservationStatus.RESERVED && status != ReservationStatus.IN_PROGRESS) {
+            throw new BusinessException(ErrorCode.INVALID_STATUS_TRANSITION);
+        }
+        requireVersion(expectedVersion);
+    }
+
+    /** 방문 완료 (08 18번, 04 F-RSV-04). 시각 전·후 모두, 예약 또는 진행중에서 가능하다. 확인 순서는 {@link #assertCompletable}. */
     public void complete(int expectedVersion) {
-        assertChangeable(expectedVersion);
+        assertCompletable(expectedVersion);
         this.status = ReservationStatus.COMPLETED;
+    }
+
+    /**
+     * 방문 접수 (08 39번, 04 F-RSV-09, D-52): 차량이 도착해 예약이 진행중이 된다. {@code RESERVED}에서만, 시각 전·후 모두 가능하다
+     * (D-23). 확인 순서는 {@link #assertChangeable}. 진행중 예약의 변경(19)은 같은 확인에서 409로 막힌다.
+     */
+    public void start(int expectedVersion) {
+        assertChangeable(expectedVersion);
+        this.status = ReservationStatus.IN_PROGRESS;
     }
 
     /**
@@ -139,10 +160,7 @@ public class Reservation {
      * 취소 사유는 받지 않는다 (POL-100).
      */
     public void cancel(int expectedVersion) {
-        if (status != ReservationStatus.RESERVED && status != ReservationStatus.IN_PROGRESS) {
-            throw new BusinessException(ErrorCode.INVALID_STATUS_TRANSITION);
-        }
-        requireVersion(expectedVersion);
+        assertCompletable(expectedVersion);
         this.status = ReservationStatus.CANCELED;
     }
 

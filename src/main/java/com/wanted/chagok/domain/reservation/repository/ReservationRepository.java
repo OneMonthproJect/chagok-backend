@@ -35,6 +35,21 @@ public interface ReservationRepository extends JpaRepository<Reservation, Long> 
                                                   @Param("from") LocalDateTime from);
 
     /**
+     * 차량들의 {@code status} 예약을 날짜와 무관하게 이른 순서로 돌려준다. 진행중({@code IN_PROGRESS})은 날짜와 상관없이
+     * 유효 예약이라서 쓴다 (D-52, R23).
+     */
+    @Query("""
+        select r from Reservation r
+        where r.shopId = :shopId
+          and r.vehicleId in :vehicleIds
+          and r.status = :status
+        order by r.reservedAt asc, r.id asc
+        """)
+    List<Reservation> findByVehiclesAndStatus(@Param("shopId") Long shopId,
+                                              @Param("vehicleIds") Collection<Long> vehicleIds,
+                                              @Param("status") ReservationStatus status);
+
+    /**
      * 기간 조회(API 15): 예약 일시가 {@code from} 이상 {@code toExclusive} 미만. 취소·노쇼도 포함하고 시각 순
      * (같은 시각은 id 순)으로 돌려준다. 쪽 나누기는 없다(최대 42일, 08 15번).
      */

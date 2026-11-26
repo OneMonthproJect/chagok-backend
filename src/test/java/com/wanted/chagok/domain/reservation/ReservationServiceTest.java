@@ -10,6 +10,7 @@ import static org.mockito.Mockito.when;
 
 import com.wanted.chagok.domain.account.api.StaffReader;
 import com.wanted.chagok.domain.customer.api.CustomerReader;
+import com.wanted.chagok.domain.customer.api.CustomerWriter;
 import com.wanted.chagok.domain.item.api.ItemReader;
 import com.wanted.chagok.domain.reservation.api.ReservationRef;
 import com.wanted.chagok.domain.reservation.dto.ReservationResponse;
@@ -56,12 +57,15 @@ class ReservationServiceTest {
     private CustomerReader customerReader;
 
     @Mock
+    private CustomerWriter customerWriter;
+
+    @Mock
     private ItemReader itemReader;
     @Mock
     private StaffReader staffReader;
 
     private ReservationService service() {
-        return new ReservationService(repository, itemRepository, customerReader, itemReader, staffReader, clock);
+        return new ReservationService(repository, itemRepository, customerReader, customerWriter, itemReader, staffReader, clock);
     }
 
     private static Reservation reservation(long id, long shopId, long vehicleId, LocalDateTime at,

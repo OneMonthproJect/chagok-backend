@@ -15,6 +15,7 @@ import static org.mockito.Mockito.when;
 import com.wanted.chagok.domain.account.api.AssigneeRef;
 import com.wanted.chagok.domain.account.api.StaffReader;
 import com.wanted.chagok.domain.customer.api.CustomerReader;
+import com.wanted.chagok.domain.customer.api.CustomerWriter;
 import com.wanted.chagok.domain.customer.api.VehicleSummary;
 import com.wanted.chagok.domain.item.api.ItemReader;
 import com.wanted.chagok.domain.item.api.ItemRef;
@@ -71,6 +72,9 @@ class ReservationListCreateServiceTest {
     private CustomerReader customerReader;
 
     @Mock
+    private CustomerWriter customerWriter;
+
+    @Mock
     private ItemReader itemReader;
     @Mock
     private StaffReader staffReader;
@@ -78,7 +82,7 @@ class ReservationListCreateServiceTest {
     private ReservationService service() {
         // 이 정비소의 담당 후보는 등록자(STAFF) 한 명. 목록 테스트는 쓰지 않으므로 lenient
         lenient().when(staffReader.findAssignees(SHOP)).thenReturn(List.of(new AssigneeRef(STAFF, "박사장", StaffRole.OWNER, 0)));
-        return new ReservationService(repository, itemRepository, customerReader, itemReader, staffReader, clock);
+        return new ReservationService(repository, itemRepository, customerReader, customerWriter, itemReader, staffReader, clock);
     }
 
     private static ReservationCreateRequest request(LocalDateTime at, List<Long> itemIds, Boolean other, String memo) {

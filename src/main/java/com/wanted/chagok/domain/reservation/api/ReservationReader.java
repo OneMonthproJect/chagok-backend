@@ -18,8 +18,8 @@ public interface ReservationReader {
      * 차량별 "유효 예약"을 한 번에 돌려준다. 08 14번의 {@code activeReservation}이고, 같은 기준을 16번의
      * {@code RESERVATION_ACTIVE_EXISTS}도 쓴다 (D-22).
      *
-     * <p>유효 예약 = 상태가 {@code RESERVED}이고 예약 날짜가 오늘 이후(오늘 포함). 오늘은 service가 {@code Clock}으로
-     * 계산한다(호출하는 쪽이 날짜를 넘기지 않는다). {@code IN_PROGRESS}는 P0-나머지에서 이 기준에 더한다(D-52).
+     * <p>유효 예약 = 상태가 {@code RESERVED}이고 예약 날짜가 오늘 이후(오늘 포함), 또는 상태가 {@code IN_PROGRESS}(날짜와
+     * 무관, D-52·R23). 오늘은 service가 {@code Clock}으로 계산한다(호출하는 쪽이 날짜를 넘기지 않는다).
      * 한 차량에 유효 예약이 1건을 넘지 않게 하는 것은 등록 때 service의 규칙이다(D-22, DB 제약은 없고 동시 요청 잠금은
      * P2). 그래서 같은 차량이 둘 이상 나와도 예외 없이 가장 이른 예약 하나를 돌려준다.
      *

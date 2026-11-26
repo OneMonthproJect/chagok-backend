@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.when;
 
 import com.wanted.chagok.domain.customer.api.CustomerReader;
+import com.wanted.chagok.domain.customer.api.CustomerWriter;
 import com.wanted.chagok.domain.item.api.ItemReader;
 import com.wanted.chagok.domain.reservation.api.ReservationDetail;
 import com.wanted.chagok.domain.reservation.entity.Reservation;
@@ -52,10 +53,13 @@ class ReservationDetailServiceTest {
     private CustomerReader customerReader;
 
     @Mock
+    private CustomerWriter customerWriter;
+
+    @Mock
     private ItemReader itemReader;
 
     private ReservationService service() {
-        return new ReservationService(repository, itemRepository, customerReader, itemReader, clock);
+        return new ReservationService(repository, itemRepository, customerReader, customerWriter, itemReader, clock);
     }
 
     private Reservation stored(LocalDateTime at, ReservationStatus status, int version) {

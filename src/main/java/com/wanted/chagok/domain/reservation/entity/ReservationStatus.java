@@ -1,9 +1,9 @@
 package com.wanted.chagok.domain.reservation.entity;
 
 /**
- * 예약 상태 (08 0.4). V2의 {@code ck_reservation_status} CHECK가 허용하는 값과 같아야 한다 (07 6.3).
+ * 예약 상태 (08 0.4). V2의 {@code ck_reservation_status} CHECK가 허용하는 다섯 값이다 (07 3.8, backend#31).
  *
- * <p>{@code IN_PROGRESS}(진행중, 방문 접수 39, D-52)는 V2(backend#31)로 허용됐다. {@code NO_SHOW}(노쇼)는 노쇼 이슈(backend#33)에서 더한다.
+ * <p>{@code IN_PROGRESS}(진행중)로 가는 길은 방문 접수(API 39)다 (backend#36).
  */
 public enum ReservationStatus {
     /** 예약. 시각이 지났어도 상태는 그대로이고 화면이 "처리 필요"로 표시한다 (D-23). */
@@ -13,5 +13,7 @@ public enum ReservationStatus {
     /** 방문 완료. */
     COMPLETED,
     /** 취소. */
-    CANCELED
+    CANCELED,
+    /** 노쇼 — 예약 시각이 지난 {@code RESERVED}만 (08 21번, R6). */
+    NO_SHOW
 }

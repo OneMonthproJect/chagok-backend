@@ -266,6 +266,30 @@ public class ReservationService implements ReservationReader {
     }
 
     /**
+     * API 20 취소 (04 F-RSV-07, R10·R12·R13, X12). 순서는 18과 같다: 정비소 소유(404) → 상태 → {@code version} → 전이 →
+     * {@code @Version} 조건 저장. 하나라도 어긋나면 예외가 나고 트랜잭션이 되돌려져 상태·{@code version}이 그대로다.
+     */
+    @Transactional
+    public ReservationResponse cancel(long shopId, long reservationId, int expectedVersion) {
+        Reservation reservation = getOwned(shopId, reservationId);
+        reservation.cancel(expectedVersion);
+        reservationRepository.saveAndFlush(reservation);
+        return ReservationResponse.statusChanged(reservation);
+    }
+
+    /**
+     * API 21 노쇼 (04 F-RSV-08, R6·R10·R12·R13, X12). 18과 같은 순서에 시각 확인이 {@code version} 비교 다음에 붙는다
+     * ({@code markNoShow(now)}, 시각은 {@code Clock}).
+     */
+    @Transactional
+    public ReservationResponse markNoShow(long shopId, long reservationId, int expectedVersion) {
+        Reservation reservation = getOwned(shopId, reservationId);
+        reservation.markNoShow(expectedVersion, LocalDateTime.now(clock));
+        reservationRepository.saveAndFlush(reservation);
+        return ReservationResponse.statusChanged(reservation);
+    }
+
+    /**
      * API 19 예약 변경 (04 F-RSV-06, R7·R8·R9·R11·R14). 보낸 필드만 바꾼다. 순서(08 19번): 바꿀 필드 없음(400, 소유 확인보다 먼저) →
      * 정비소 소유(404) → 상태 {@code RESERVED}(409) → {@code version} 일치(409) → 30분 단위(400) → 항목(400) → 날짜(400) →
      * 같은 차량 유효 예약 1건(자기 자신 제외, 409) → 변경. 하나라도 어긋나면 아무것도 바꾸지 않는다.

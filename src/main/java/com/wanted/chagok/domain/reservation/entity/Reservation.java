@@ -111,6 +111,11 @@ public class Reservation {
         if (status != ReservationStatus.RESERVED) {
             throw new BusinessException(ErrorCode.INVALID_STATUS_TRANSITION);
         }
+        requireVersion(expectedVersion);
+    }
+
+    /** 요청 {@code version}이 DB 값과 같은지 서버가 직접 비교한다 (08 18~21번). 다르면 409 {@code CONCURRENT_MODIFICATION}. */
+    private void requireVersion(int expectedVersion) {
         if (version == null || version != expectedVersion) {
             throw new BusinessException(ErrorCode.CONCURRENT_MODIFICATION);
         }
@@ -125,9 +130,7 @@ public class Reservation {
         if (status != ReservationStatus.RESERVED && status != ReservationStatus.IN_PROGRESS) {
             throw new BusinessException(ErrorCode.INVALID_STATUS_TRANSITION);
         }
-        if (version == null || version != expectedVersion) {
-            throw new BusinessException(ErrorCode.CONCURRENT_MODIFICATION);
-        }
+        requireVersion(expectedVersion);
     }
 
     /** 방문 완료 (08 18번, 04 F-RSV-04). 시각 전·후 모두, 예약 또는 진행중에서 가능하다. 확인 순서는 {@link #assertCompletable}. */
@@ -143,6 +146,37 @@ public class Reservation {
     public void start(int expectedVersion) {
         assertChangeable(expectedVersion);
         this.status = ReservationStatus.IN_PROGRESS;
+    }
+
+    /**
+     * 취소 (08 20번, 04 F-RSV-07). {@code RESERVED}·{@code IN_PROGRESS}에서 시각 전·후 모두 가능하고, 끝난 예약(완료·취소·노쇼)은
+     * 409 {@code INVALID_STATUS_TRANSITION}. 순서는 18과 같다: 상태 → {@code version}(409 {@code CONCURRENT_MODIFICATION}).
+     * 취소 사유는 받지 않는다 (POL-100).
+     */
+    public void cancel(int expectedVersion) {
+        if (status != ReservationStatus.RESERVED && status != ReservationStatus.IN_PROGRESS) {
+            throw new BusinessException(ErrorCode.INVALID_STATUS_TRANSITION);
+        }
+        requireVersion(expectedVersion);
+        this.status = ReservationStatus.CANCELED;
+    }
+
+    /**
+     * 노쇼 (08 21번, 04 F-RSV-08, R6). {@code RESERVED}이고 예약 시각이 현재보다 이전인 예약만 가능하다. 순서: 상태 →
+     * {@code version} → 시각(아니면 409 {@code INVALID_STATUS_TRANSITION}). 시각 판정은 "처리 필요"({@link #needsAction})와 같은
+     * 기준(예약 시각이 현재보다 이전)이다.
+     *
+     * @param now 호출하는 쪽이 {@code Clock}에서 꺼내 넘긴다(Entity는 시각을 직접 읽지 않는다)
+     */
+    public void markNoShow(int expectedVersion, LocalDateTime now) {
+        if (status != ReservationStatus.RESERVED) {
+            throw new BusinessException(ErrorCode.INVALID_STATUS_TRANSITION);
+        }
+        requireVersion(expectedVersion);
+        if (!reservedAt.isBefore(now)) {
+            throw new BusinessException(ErrorCode.INVALID_STATUS_TRANSITION);
+        }
+        this.status = ReservationStatus.NO_SHOW;
     }
 
     /**

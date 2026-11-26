@@ -9,6 +9,7 @@ import com.wanted.chagok.domain.reservation.dto.ReservationCreateRequest;
 import com.wanted.chagok.domain.reservation.dto.ReservationCreateResponse;
 import com.wanted.chagok.domain.reservation.dto.ReservationListResponse;
 import com.wanted.chagok.domain.reservation.dto.ReservationResponse;
+import com.wanted.chagok.domain.reservation.dto.ReservationStartRequest;
 import com.wanted.chagok.domain.reservation.dto.ReservationUpdateRequest;
 import com.wanted.chagok.domain.reservation.entity.ReservationStatus;
 import com.wanted.chagok.domain.reservation.entity.Reservation;
@@ -383,6 +384,106 @@ class ReservationServiceDbTest {
             });
         em.clear();
         assertThat(dbVersion(past)).isEqualTo(1);
+    }
+
+    // ------------------------------------------------------------------ 방문 접수 (API 39)
+
+    @Test
+    @DisplayName("R21 방문 접수: 진행중·version 1, 차량 연식·주행거리 저장(D-58), 이어서 변경(19)은 409, 방문 완료(18)는 COMPLETED")
+    void startThenUpdateBlockedThenComplete() {
+        long id = createReservation(vehicleA1, TODAY.plusDays(2).atTime(10, 0), List.of(oil));
+        em.flush();
+        em.clear();
+
+        ReservationResponse started = service.start(shopA, id, new ReservationStartRequest(0, 2019, 41000));
+        em.flush();
+        em.clear();
+
+        assertThat(started.status()).isEqualTo(ReservationStatus.IN_PROGRESS);
+        assertThat(started.version()).isEqualTo(1);
+        assertThat(dbVersion(id)).isEqualTo(1);
+        assertThat(jdbc.queryForObject("SELECT status FROM reservation WHERE id = ?", String.class, id)).isEqualTo("IN_PROGRESS");
+        Map<String, Object> vehicle = jdbc.queryForMap("SELECT model_year, latest_mileage FROM vehicle WHERE id = ?", vehicleA1);
+        assertThat(((Number) vehicle.get("model_year")).intValue()).isEqualTo(2019);
+        assertThat(((Number) vehicle.get("latest_mileage")).intValue()).isEqualTo(41000);
+
+        assertThatThrownBy(() -> service.update(shopA, id, update(1, TODAY.plusDays(3).atTime(10, 0), null, null, null)))
+            .isInstanceOfSatisfying(BusinessException.class,
+                e -> assertThat(e.code()).isEqualTo(ErrorCode.INVALID_STATUS_TRANSITION));
+        assertThatThrownBy(() -> service.start(shopA, id, new ReservationStartRequest(1, null, null)))
+            .isInstanceOfSatisfying(BusinessException.class,
+                e -> assertThat(e.code()).isEqualTo(ErrorCode.INVALID_STATUS_TRANSITION));
+        em.clear();
+        assertThat(dbVersion(id)).isEqualTo(1);
+
+        ReservationResponse completed = service.complete(shopA, id, 1);
+        em.flush();
+        em.clear();
+        assertThat(completed.status()).isEqualTo(ReservationStatus.COMPLETED);
+        assertThat(dbVersion(id)).isEqualTo(2);
+    }
+
+    @Test
+    @DisplayName("X14 다른 정비소 토큰으로 방문 접수 → 404, 예약·차량 값은 그대로")
+    void startIsolation() {
+        long id = createReservation(vehicleA1, TODAY.plusDays(2).atTime(10, 0), List.of());
+        em.flush();
+        em.clear();
+
+        assertThatThrownBy(() -> service.start(shopB, id, new ReservationStartRequest(0, 2019, 41000)))
+            .isInstanceOfSatisfying(BusinessException.class, e -> assertThat(e.code()).isEqualTo(ErrorCode.NOT_FOUND));
+        em.flush();
+        em.clear();
+
+        assertThat(jdbc.queryForObject("SELECT status FROM reservation WHERE id = ?", String.class, id)).isEqualTo("RESERVED");
+        assertThat(dbVersion(id)).isZero();
+        Map<String, Object> vehicle = jdbc.queryForMap("SELECT model_year, latest_mileage FROM vehicle WHERE id = ?", vehicleA1);
+        assertThat(vehicle.get("model_year")).isNull();
+        assertThat(vehicle.get("latest_mileage")).isNull();
+    }
+
+    @Test
+    @DisplayName("D-58 차량 값이 비어 있는데 요청에 없거나 연식이 범위 밖이면 400 — 예약은 RESERVED·version 0, 차량은 그대로 (연식 오류 필드는 modelYear)")
+    void startInvalidInputChangesNothing() {
+        long id = createReservation(vehicleA1, TODAY.plusDays(2).atTime(10, 0), List.of());
+        em.flush();
+        em.clear();
+
+        assertThatThrownBy(() -> service.start(shopA, id, new ReservationStartRequest(0, null, null)))
+            .isInstanceOfSatisfying(BusinessException.class, e -> {
+                assertThat(e.code()).isEqualTo(ErrorCode.INVALID_INPUT);
+                assertThat(e.fieldErrors()).extracting("field").containsExactly("modelYear", "mileage");
+            });
+        assertThatThrownBy(() -> service.start(shopA, id, new ReservationStartRequest(0, 1979, 41000)))
+            .isInstanceOfSatisfying(BusinessException.class, e -> {
+                assertThat(e.code()).isEqualTo(ErrorCode.INVALID_INPUT);
+                assertThat(e.fieldErrors()).extracting("field").containsExactly("modelYear");
+            });
+        em.flush();
+        em.clear();
+
+        assertThat(jdbc.queryForObject("SELECT status FROM reservation WHERE id = ?", String.class, id)).isEqualTo("RESERVED");
+        assertThat(dbVersion(id)).isZero();
+        Map<String, Object> vehicle = jdbc.queryForMap("SELECT model_year, latest_mileage FROM vehicle WHERE id = ?", vehicleA1);
+        assertThat(vehicle.get("model_year")).isNull();
+        assertThat(vehicle.get("latest_mileage")).isNull();
+    }
+
+    @Test
+    @DisplayName("R23 어제 날짜의 진행중 예약이 있는 차량에 새 예약 → 409 RESERVATION_ACTIVE_EXISTS(진행중은 날짜와 무관), 대표 예약은 그 진행중 예약")
+    void inProgressYesterdayBlocksNewReservation() {
+        long inProgress = insertReservation(shopA, vehicleA1, TODAY.minusDays(1).atTime(10, 0), "IN_PROGRESS", staffA);
+        em.clear();
+
+        assertThatThrownBy(() -> createReservation(vehicleA1, TODAY.plusDays(2).atTime(10, 0), List.of()))
+            .isInstanceOfSatisfying(BusinessException.class, e -> {
+                assertThat(e.code()).isEqualTo(ErrorCode.RESERVATION_ACTIVE_EXISTS);
+                assertThat(e.details()).isEqualTo(Map.of("reservationId", inProgress));
+            });
+        Map<Long, ReservationRef> active = reader.findActiveByVehicleIds(shopA, List.of(vehicleA1, vehicleA2));
+        assertThat(active).containsOnlyKeys(vehicleA1);
+        assertThat(active.get(vehicleA1).reservationId()).isEqualTo(inProgress);
+        assertThat(reservationCount(shopA)).isEqualTo(1);
     }
 
     // ------------------------------------------------------------------ helpers

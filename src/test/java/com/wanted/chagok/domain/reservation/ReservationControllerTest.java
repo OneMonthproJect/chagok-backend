@@ -81,7 +81,7 @@ class ReservationControllerTest {
     @DisplayName("15 성공: 08 응답 모양(from·to·items[]), assignee 필드 없음, shopId는 토큰의 값으로 service에 전달 (X7·X8)")
     void listSuccess() throws Exception {
         LocalDate day = LocalDate.of(2026, 11, 23);
-        when(service.list(3L, day, day)).thenReturn(new ReservationListResponse(day, day, List.of(
+        when(service.list(3L, day, day, null)).thenReturn(new ReservationListResponse(day, day, List.of(
             new ReservationListResponse.Item(4L, LocalDateTime.of(2026, 11, 23, 15, 0), ReservationStatus.RESERVED,
                 true, 0, 10L, "55차0010", 10L, "오세훈", "010-0000-0010", "배터리"))));
 
@@ -103,14 +103,35 @@ class ReservationControllerTest {
             .andExpect(jsonPath("$.data.items[0].purposeSummary").value("배터리"))
             .andExpect(jsonPath("$.data.items[0].assignee").doesNotExist())
             .andExpect(jsonPath("$.error").isEmpty());
-        verify(service).list(3L, day, day);
+        verify(service).list(3L, day, day, null);
+    }
+
+    @Test
+    @DisplayName("15 assigneeId 쿼리는 선택이고, 주면 그대로 service에 넘긴다 (\"내 담당만\" 보기, P0-나머지)")
+    void listWithAssigneeId() throws Exception {
+        LocalDate day = LocalDate.of(2026, 11, 23);
+        when(service.list(3L, day, day, 2L)).thenReturn(new ReservationListResponse(day, day, List.of()));
+
+        mvc.perform(get("/api/reservations").param("from", "2026-11-23").param("to", "2026-11-23").param("assigneeId", "2"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.items").isEmpty());
+        verify(service).list(3L, day, day, 2L);
+    }
+
+    @Test
+    @DisplayName("15 assigneeId가 숫자가 아니면 400 INVALID_INPUT이고 service를 부르지 않는다")
+    void listAssigneeIdMustBeNumber() throws Exception {
+        mvc.perform(get("/api/reservations").param("from", "2026-11-23").param("to", "2026-11-23").param("assigneeId", "abc"))
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.error.code").value("INVALID_INPUT"));
+        verify(service, never()).list(anyLong(), any(), any(), any());
     }
 
     @Test
     @DisplayName("15 예약이 없으면 items는 [] (null이 아님)")
     void listEmpty() throws Exception {
         LocalDate day = LocalDate.of(2026, 11, 24);
-        when(service.list(3L, day, day)).thenReturn(new ReservationListResponse(day, day, List.of()));
+        when(service.list(3L, day, day, null)).thenReturn(new ReservationListResponse(day, day, List.of()));
 
         mvc.perform(get("/api/reservations").param("from", "2026-11-24").param("to", "2026-11-24"))
             .andExpect(status().isOk())
@@ -131,7 +152,7 @@ class ReservationControllerTest {
         mvc.perform(get("/api/reservations").param("from", "abc").param("to", "2026-11-24"))
             .andExpect(status().isBadRequest())
             .andExpect(jsonPath("$.error.code").value("INVALID_INPUT"));
-        verify(service, never()).list(anyLong(), any(), any());
+        verify(service, never()).list(anyLong(), any(), any(), any());
     }
 
     @Test
@@ -139,7 +160,7 @@ class ReservationControllerTest {
     void listPeriodRule() throws Exception {
         LocalDate from = LocalDate.of(2026, 11, 5);
         LocalDate to = LocalDate.of(2026, 11, 4);
-        when(service.list(3L, from, to)).thenThrow(BusinessException.invalidField("from", "시작일은 종료일보다 늦을 수 없습니다."));
+        when(service.list(3L, from, to, null)).thenThrow(BusinessException.invalidField("from", "시작일은 종료일보다 늦을 수 없습니다."));
 
         mvc.perform(get("/api/reservations").param("from", "2026-11-05").param("to", "2026-11-04"))
             .andExpect(status().isBadRequest())

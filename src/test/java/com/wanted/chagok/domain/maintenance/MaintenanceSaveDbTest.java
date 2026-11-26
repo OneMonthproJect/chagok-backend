@@ -19,9 +19,6 @@ import java.time.Clock;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
-import java.util.TimeZone;
-import org.junit.jupiter.api.AfterAll;
-import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Tag;
@@ -64,20 +61,6 @@ class MaintenanceSaveDbTest {
     private long filter;
     private long oilOfB;
     private LocalDate today;
-
-    private static TimeZone originalTimeZone;
-
-    /** 앱은 시작할 때 JVM 시간대를 서울로 고정한다(#65). 테스트는 main()을 거치지 않아 같은 값으로 맞춘다. 안 그러면 UTC인 CI에서 날짜가 하루 어긋난다. */
-    @BeforeAll
-    static void useAppTimeZone() {
-        originalTimeZone = TimeZone.getDefault();
-        TimeZone.setDefault(TimeZone.getTimeZone("Asia/Seoul"));
-    }
-
-    @AfterAll
-    static void restoreTimeZone() {
-        TimeZone.setDefault(originalTimeZone);
-    }
 
     @BeforeEach
     void data() {
@@ -181,15 +164,26 @@ class MaintenanceSaveDbTest {
         em.flush();
 
         List<Map<String, Object>> rows = jdbc.queryForList(
-            "SELECT record_type, record_date, mileage, source, staff_id, inspect_result "
+            "SELECT record_type, mileage, source, staff_id, inspect_result "
                 + "FROM maintenance_record WHERE vehicle_id = ? ORDER BY id", vehicleA);
         assertThat(rows).extracting(r -> r.get("record_type")).containsExactly("EXTERNAL", "DECLINE", "INSPECT");
         assertThat(rows).extracting(r -> r.get("source")).containsExactly("CUSTOMER_STATEMENT", "SHOP", "SHOP");
-        assertThat(rows).extracting(r -> r.get("record_date").toString())
-            .containsExactly(externalDate.toString(), today.toString(), today.toString());
         assertThat(rows).extracting(r -> ((Number) r.get("mileage")).intValue()).containsExactly(48_000, 55_000, 55_000);
         assertThat(rows).extracting(r -> ((Number) r.get("staff_id")).longValue()).containsOnly(mechanic);
         assertThat(rows).extracting(r -> r.get("inspect_result")).containsExactly(null, null, "CAUTION");
+
+        // 날짜는 DB를 JDBC로 직접 읽지 않고 앱의 조회(API 11)로 본다. 직접 읽으면 테스트 JVM 시간대(CI는 UTC)에 따라
+        // 하루 어긋나 보이고, 같은 클래스의 saveThenListed처럼 조회 경로로 보면 시간대와 무관하다.
+        VisitRef external = service.listVisits(shopA, vehicleA, PageLimit.of(null, null)).items().stream()
+            .filter(v -> v.records().stream().anyMatch(r -> r.type().equals("EXTERNAL")))
+            .findFirst().orElseThrow();
+        // 외부가 아닌 기록이 함께 있으면 방문일은 그 기록의 날짜다 (08 11)
+        assertThat(external.visitDate()).isEqualTo(today);
+        assertThat(external.records()).extracting(VisitRef.VisitRecord::type, VisitRef.VisitRecord::date)
+            .containsExactlyInAnyOrder(
+                org.assertj.core.api.Assertions.tuple("EXTERNAL", externalDate),
+                org.assertj.core.api.Assertions.tuple("DECLINE", today),
+                org.assertj.core.api.Assertions.tuple("INSPECT", today));
     }
 
     @Test

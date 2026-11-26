@@ -9,6 +9,7 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.wanted.chagok.domain.customer.api.CustomerReader;
+import com.wanted.chagok.domain.customer.api.CustomerWriter;
 import com.wanted.chagok.domain.customer.api.VehicleSummary;
 import com.wanted.chagok.domain.item.api.ItemReader;
 import com.wanted.chagok.domain.item.api.ItemRef;
@@ -57,10 +58,13 @@ class ReservationFindByDateServiceTest {
     private CustomerReader customerReader;
 
     @Mock
+    private CustomerWriter customerWriter;
+
+    @Mock
     private ItemReader itemReader;
 
     private ReservationService service() {
-        return new ReservationService(repository, itemRepository, customerReader, itemReader, clock);
+        return new ReservationService(repository, itemRepository, customerReader, customerWriter, itemReader, clock);
     }
 
     private static Reservation reservation(long id, long vehicleId, LocalDateTime at, ReservationStatus status,
@@ -118,6 +122,25 @@ class ReservationFindByDateServiceTest {
         assertThat(day.reservations()).hasSize(3);
         assertThat(day.reservations()).extracting("status").containsExactly("COMPLETED", "RESERVED", "CANCELED");
         // 끝난 예약은 시각이 지나도 "처리 필요"가 아니고, 아직 안 지난 16:00 RESERVED·취소도 아니다
+        assertThat(day.reservations()).extracting("needsAction").containsExactly(false, false, false);
+    }
+
+    @Test
+    @DisplayName("건수는 취소만 뺀다 — 노쇼(NO_SHOW)·진행중(IN_PROGRESS)은 세고, 시각이 지나도 \"처리 필요\"가 아니다 (08 04번, D-23)")
+    void countKeepsNoShowAndInProgress() {
+        when(repository.findInPeriod(anyLong(), any(), any()))
+            .thenReturn(List.of(
+                reservation(1, 4, LocalDateTime.of(2026, 11, 24, 10, 0), ReservationStatus.NO_SHOW, false, null),
+                reservation(2, 4, LocalDateTime.of(2026, 11, 24, 11, 0), ReservationStatus.IN_PROGRESS, false, null),
+                reservation(3, 4, LocalDateTime.of(2026, 11, 24, 12, 0), ReservationStatus.CANCELED, false, null)));
+        when(customerReader.findVehicleSummaries(anyLong(), anyCollection())).thenReturn(Map.of(
+            4L, new VehicleSummary(4, "78라0004", 40, "최지은", "010-0000-0004", true)));
+        when(itemRepository.findByShopIdAndReservationIdIn(anyLong(), anyCollection())).thenReturn(List.of());
+
+        ReservationDay day = service().findByDate(SHOP, DAY);
+
+        assertThat(day.countExcludingCancelled()).isEqualTo(2);
+        assertThat(day.reservations()).extracting("status").containsExactly("NO_SHOW", "IN_PROGRESS", "CANCELED");
         assertThat(day.reservations()).extracting("needsAction").containsExactly(false, false, false);
     }
 

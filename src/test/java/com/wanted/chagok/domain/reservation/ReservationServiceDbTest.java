@@ -407,7 +407,7 @@ class ReservationServiceDbTest {
         assertThat(((Number) vehicle.get("model_year")).intValue()).isEqualTo(2019);
         assertThat(((Number) vehicle.get("latest_mileage")).intValue()).isEqualTo(41000);
 
-        assertThatThrownBy(() -> service.update(shopA, id, update(1, TODAY.plusDays(3).atTime(10, 0), null, null, null)))
+        assertThatThrownBy(() -> service.update(ReservationTestStaff.owner(shopA), id, update(1, TODAY.plusDays(3).atTime(10, 0), null, null, null)))
             .isInstanceOfSatisfying(BusinessException.class,
                 e -> assertThat(e.code()).isEqualTo(ErrorCode.INVALID_STATUS_TRANSITION));
         assertThatThrownBy(() -> service.start(shopA, id, new ReservationStartRequest(1, null, null)))

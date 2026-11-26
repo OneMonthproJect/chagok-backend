@@ -10,6 +10,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.wanted.chagok.domain.customer.api.CustomerWriter;
 import com.wanted.chagok.domain.account.api.AssigneeRef;
 import com.wanted.chagok.domain.account.api.StaffReader;
 import com.wanted.chagok.domain.customer.api.CustomerReader;
@@ -66,7 +67,7 @@ class ReservationReassignServiceTest {
     private final ReservationRevisionRepository revisions = mock(ReservationRevisionRepository.class);
     private final StaffReader staffReader = mock(StaffReader.class);
     private final ReservationService service = new ReservationService(repository, mock(ReservationItemRepository.class),
-        revisions, mock(CustomerReader.class), mock(ItemReader.class), staffReader, clock);
+        revisions, mock(CustomerReader.class), mock(CustomerWriter.class), mock(ItemReader.class), staffReader, clock);
 
     private Reservation existing(LocalDateTime at, ReservationStatus status) {
         Reservation r = Reservation.register(SHOP, VEHICLE, at, false, "기존 메모", OWNER_ID, OWNER_ID);

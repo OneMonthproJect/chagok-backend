@@ -11,6 +11,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.wanted.chagok.domain.customer.api.CustomerWriter;
 import com.wanted.chagok.domain.account.api.AssigneeRef;
 import com.wanted.chagok.domain.account.api.StaffReader;
 import com.wanted.chagok.domain.customer.api.CustomerReader;
@@ -61,7 +62,7 @@ class ReservationAssigneeServiceTest {
     // 2026-11-24 15:00 (Asia/Seoul)
     private final Clock clock = Clock.fixed(Instant.parse("2026-11-24T06:00:00Z"), ClockConfig.SEOUL);
     private final ReservationService service =
-        new ReservationService(repository, itemRepository, revisionRepository, customerReader, itemReader, staffReader, clock);
+        new ReservationService(repository, itemRepository, revisionRepository, customerReader, mock(CustomerWriter.class), itemReader, staffReader, clock);
 
     private void thisShopStaff() {
         when(staffReader.findAssignees(SHOP)).thenReturn(List.of(

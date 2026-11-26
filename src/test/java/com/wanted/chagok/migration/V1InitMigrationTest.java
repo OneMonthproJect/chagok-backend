@@ -503,6 +503,132 @@ class V1InitMigrationTest {
         assertThat(timestampColumns).isEqualTo(15);
     }
 
+    // ---------- V2 새 제약의 거부 사례 (chagok-backend#31) ----------
+    // 이름·칼럼 존재(V1-2·V1-12)만이 아니라, 실제로 잘못된 값을 막는지 본다. 올바른 값이 먼저 성공하고, 값 하나만 틀리게 한다.
+
+    private static final String INSPECT_RECORD_SQL =
+        "INSERT INTO maintenance_record (shop_id, vehicle_id, service_item_id, visit_key, record_date,"
+            + " record_type, source, staff_id, inspect_result, created_at, updated_at)"
+            + " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, '" + NOW + "', '" + NOW + "')";
+    private static final String RECORD_REVISION_SQL =
+        "INSERT INTO maintenance_record_revision (shop_id, record_id, revision_no, changed_by_staff_id,"
+            + " prev_record_date, prev_record_type, prev_service_item_id, prev_staff_id, created_at)"
+            + " VALUES (?, ?, ?, ?, ?, ?, ?, ?, '" + NOW + "')";
+    // 인자 순서: shop_id, reservation_id, kind, changed_by_staff_id, prev_status, new_status, prev_assignee_id, new_assignee_id
+    private static final String RESERVATION_REVISION_SQL =
+        "INSERT INTO reservation_revision (shop_id, reservation_id, kind, changed_by_staff_id,"
+            + " prev_status, new_status, prev_assignee_id, new_assignee_id, created_at)"
+            + " VALUES (?, ?, ?, ?, ?, ?, ?, ?, '" + NOW + "')";
+
+    @Test
+    @DisplayName("V2 inspect_result: 'BAD' → 3819, REPLACE에 'GOOD' → 3819 (INSPECT에 GOOD·CAUTION은 성공)")
+    void v2_inspectResultRejectsBadValueAndNonInspectRecord() {
+        // 양성 대조
+        insert(INSPECT_RECORD_SQL, shopA, vehicleA, itemA, VISIT_KEY, TODAY, "INSPECT", "SHOP", staffA, "GOOD");
+        insert(INSPECT_RECORD_SQL, shopA, vehicleA, itemA, VISIT_KEY, TODAY, "INSPECT", "SHOP", staffA, "CAUTION");
+        insert(INSPECT_RECORD_SQL, shopA, vehicleA, itemA, VISIT_KEY, TODAY, "REPLACE", "SHOP", staffA, null);
+
+        assertRejectedBy(CHECK_VIOLATION, "ck_maintenance_record_inspect_result", INSPECT_RECORD_SQL,
+            shopA, vehicleA, itemA, VISIT_KEY, TODAY, "INSPECT", "SHOP", staffA, "BAD");
+        assertRejectedBy(CHECK_VIOLATION, "ck_maintenance_record_inspect_result_record_type", INSPECT_RECORD_SQL,
+            shopA, vehicleA, itemA, VISIT_KEY, TODAY, "REPLACE", "SHOP", staffA, "GOOD");
+    }
+
+    @Test
+    @DisplayName("V2 reservation_revision: kind 'X' → 3819, STATUS인데 상태 NULL → 3819, ASSIGNEE인데 담당 NULL → 3819")
+    void v2_reservationRevisionKindRules() {
+        // 양성 대조: STATUS는 이전·이후 상태, ASSIGNEE는 이전·이후 담당, MEMO는 상태·담당이 NULL이어도 된다
+        insert(RESERVATION_REVISION_SQL, shopA, reservationA, "STATUS", staffA, "RESERVED", "IN_PROGRESS", null, null);
+        insert(RESERVATION_REVISION_SQL, shopA, reservationA, "ASSIGNEE", staffA, null, null, staffA, mechanicA);
+        insert(RESERVATION_REVISION_SQL, shopA, reservationA, "MEMO", staffA, null, null, null, null);
+
+        assertRejectedBy(CHECK_VIOLATION, "ck_reservation_revision_kind", RESERVATION_REVISION_SQL,
+            shopA, reservationA, "X", staffA, null, null, null, null);
+        assertRejectedBy(CHECK_VIOLATION, "ck_reservation_revision_kind_status", RESERVATION_REVISION_SQL,
+            shopA, reservationA, "STATUS", staffA, null, "IN_PROGRESS", null, null);
+        assertRejectedBy(CHECK_VIOLATION, "ck_reservation_revision_kind_status", RESERVATION_REVISION_SQL,
+            shopA, reservationA, "STATUS", staffA, "RESERVED", null, null, null);
+        assertRejectedBy(CHECK_VIOLATION, "ck_reservation_revision_kind_assignee", RESERVATION_REVISION_SQL,
+            shopA, reservationA, "ASSIGNEE", staffA, null, null, staffA, null);
+        assertRejectedBy(CHECK_VIOLATION, "ck_reservation_revision_kind_assignee", RESERVATION_REVISION_SQL,
+            shopA, reservationA, "ASSIGNEE", staffA, null, null, null, mechanicA);
+    }
+
+    @Test
+    @DisplayName("V2 이력 표: A 정비소 이력이 B 정비소 기록·예약을 가리키면 → 1452 (같은 정비소는 성공)")
+    void v2_revisionCannotPointToOtherShopsParent() {
+        long recordA = insert(RECORD_SQL, shopA, vehicleA, itemA, VISIT_KEY, TODAY, "REPLACE", "SHOP", staffA, NOW);
+        long recordB = insert(RECORD_SQL, shopB, vehicleB, itemB, VISIT_KEY, TODAY, "REPLACE", "SHOP", staffB, NOW);
+
+        // 양성 대조
+        insert(RECORD_REVISION_SQL, shopA, recordA, 1, staffA, TODAY, "REPLACE", itemA, staffA);
+        insert(RESERVATION_REVISION_SQL, shopA, reservationA, "MEMO", staffA, null, null, null, null);
+
+        assertRejectedBy(FK_VIOLATION, "fk_maintenance_record_revision_maintenance_record", RECORD_REVISION_SQL,
+            shopA, recordB, 1, staffA, TODAY, "REPLACE", itemA, staffA);
+        assertRejectedBy(FK_VIOLATION, "fk_reservation_revision_reservation", RESERVATION_REVISION_SQL,
+            shopA, reservationB, "MEMO", staffA, null, null, null, null);
+    }
+
+    @Test
+    @DisplayName("V2 maintenance_record_revision: 같은 (record_id, revision_no) 두 번 → 1062 (다른 번호는 성공)")
+    void v2_revisionNumberMustBeUniquePerRecord() {
+        long recordA = insert(RECORD_SQL, shopA, vehicleA, itemA, VISIT_KEY, TODAY, "REPLACE", "SHOP", staffA, NOW);
+        insert(RECORD_REVISION_SQL, shopA, recordA, 1, staffA, TODAY, "REPLACE", itemA, staffA); // 양성 대조
+        insert(RECORD_REVISION_SQL, shopA, recordA, 2, staffA, TODAY, "REPLACE", itemA, staffA);
+
+        // 중복 오류 메시지에는 '표이름.제약이름' 으로 나온다
+        Throwable thrown = catchThrowable(() ->
+            jdbc.update(RECORD_REVISION_SQL, shopA, recordA, 1, staffA, TODAY, "REPLACE", itemA, staffA));
+        assertThat(thrown).as("duplicate (record_id, revision_no) should be rejected").isNotNull();
+        assertThat(mysqlErrorCode(thrown)).isEqualTo(DUPLICATE_KEY);
+        assertThat(mysqlMessage(thrown)).contains("uk_maintenance_record_revision_record_id_revision_no");
+    }
+
+    @Test
+    @DisplayName("V2 maintenance_record.updated_at 없이 INSERT → 1364, version은 값을 안 줘도 0 (customer·vehicle·maintenance_record)")
+    void v2_updatedAtRequiredAndVersionDefaultsToZero() {
+        assertThat(jdbc.queryForObject("SELECT @@SESSION.sql_mode", String.class)).contains("STRICT_TRANS_TABLES");
+
+        // 양성 대조: updated_at이 있으면 저장되고 version은 0
+        long record = insert(RECORD_SQL, shopA, vehicleA, itemA, VISIT_KEY, TODAY, "REPLACE", "SHOP", staffA, NOW);
+        Throwable noUpdatedAt = catchThrowable(() -> jdbc.update(
+            "INSERT INTO maintenance_record (shop_id, vehicle_id, service_item_id, visit_key, record_date,"
+                + " record_type, source, staff_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            shopA, vehicleA, itemA, VISIT_KEY, TODAY, "REPLACE", "SHOP", staffA, NOW));
+        assertThat(noUpdatedAt).as("updated_at 없는 INSERT는 거부돼야 한다").isNotNull();
+        assertThat(mysqlErrorCode(noUpdatedAt)).isEqualTo(NO_DEFAULT_VALUE);
+        // 다른 칼럼이 아니라 updated_at 때문에 막힌 것인지 좁힌다
+        assertThat(mysqlMessage(noUpdatedAt)).contains("updated_at");
+
+        assertThat(jdbc.queryForObject("SELECT version FROM maintenance_record WHERE id = ?", Integer.class, record))
+            .isZero();
+        assertThat(jdbc.queryForObject("SELECT version FROM customer WHERE id = ?", Integer.class, customerA))
+            .isZero();
+        assertThat(jdbc.queryForObject("SELECT version FROM vehicle WHERE id = ?", Integer.class, vehicleA))
+            .isZero();
+    }
+
+    @Test
+    @DisplayName("V2 shop.brn·shop_address: 안 주면 '' (기존 코드 호환), 값을 주면 저장, NULL이면 → 1048")
+    void v2_shopBrnAndAddressAreNotNullWithEmptyDefault() {
+        // 기본값: 두 값 없이 INSERT하는 setUp의 shop은 ''로 채워진다
+        assertThat(jdbc.queryForMap("SELECT brn, shop_address FROM shop WHERE id = ?", shopA))
+            .containsEntry("brn", "")
+            .containsEntry("shop_address", "");
+
+        String sql = "INSERT INTO shop (name, phone, brn, shop_address, created_at) VALUES (?, ?, ?, ?, ?)";
+        // 양성 대조: 값을 주면 그대로 저장된다
+        long shop = insert(sql, "V2 검증 C", "02-0000-0003", "123-45-67890", "서울시 어딘가 1", NOW);
+        assertThat(jdbc.queryForMap("SELECT brn, shop_address FROM shop WHERE id = ?", shop))
+            .containsEntry("brn", "123-45-67890")
+            .containsEntry("shop_address", "서울시 어딘가 1");
+
+        // NULL은 막는다 (값이 실제로 있는지·형식은 서버 검증이 본다)
+        assertRejected(COLUMN_CANNOT_BE_NULL, sql, "V2 검증 D", "02-0000-0004", null, "서울시 어딘가 2", NOW);
+        assertRejected(COLUMN_CANNOT_BE_NULL, sql, "V2 검증 E", "02-0000-0005", "123-45-67890", null, NOW);
+    }
+
     // ---------- helpers ----------
 
     private long insertStaff(long shopId, String loginId, String role) {

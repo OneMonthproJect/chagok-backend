@@ -1,5 +1,6 @@
 package com.wanted.chagok.domain.reservation.service;
 
+import com.wanted.chagok.domain.account.api.AssigneeRef;
 import com.wanted.chagok.domain.account.api.StaffReader;
 import com.wanted.chagok.domain.customer.api.CustomerReader;
 import com.wanted.chagok.domain.customer.api.CustomerWriter;
@@ -7,6 +8,7 @@ import com.wanted.chagok.domain.customer.api.VehicleRef;
 import com.wanted.chagok.domain.customer.api.VehicleSummary;
 import com.wanted.chagok.domain.item.api.ItemReader;
 import com.wanted.chagok.domain.item.api.ItemRef;
+import com.wanted.chagok.domain.reservation.api.ReservationAssignee;
 import com.wanted.chagok.domain.reservation.api.ReservationDay;
 import com.wanted.chagok.domain.reservation.api.ReservationDetail;
 import com.wanted.chagok.domain.reservation.api.ReservationReader;
@@ -117,7 +119,7 @@ public class ReservationService implements ReservationReader {
         List<ReservationSummary> reservations = items.stream()
             .map(i -> new ReservationSummary(i.reservationId(), i.reservedAt(), i.status().name(), i.needsAction(),
                 i.version(), i.vehicleId(), i.plateNumber(), i.customerId(), i.customerName(), i.phone(),
-                i.purposeSummary()))
+                i.purposeSummary(), i.assignee()))
             .toList();
         int active = (int) reservations.stream().filter(r -> !ReservationStatus.CANCELED.name().equals(r.status())).count();
         return new ReservationDay(active, reservations);
@@ -131,8 +133,9 @@ public class ReservationService implements ReservationReader {
         List<Long> itemIds = reservationItemRepository.findByShopIdAndReservationIdIn(shopId, List.of(r.getId())).stream()
             .map(ReservationItem::getServiceItemId)
             .toList();
+        ReservationAssignee assignee = assigneeOf(assigneesByStaffId(shopId), r);
         return new ReservationDetail(r.getId(), r.getVehicleId(), r.getReservedAt(), r.getStatus().name(),
-            r.needsAction(LocalDateTime.now(clock)), r.getVersion(), itemIds, r.isPurposeOther(), r.getPurposeMemo());
+            r.needsAction(LocalDateTime.now(clock)), r.getVersion(), itemIds, r.isPurposeOther(), r.getPurposeMemo(), assignee);
     }
 
     /**
@@ -190,6 +193,7 @@ public class ReservationService implements ReservationReader {
         Map<Long, ItemRef> itemRefs = itemReader.findItems(shopId, itemIds);
 
         LocalDateTime now = LocalDateTime.now(clock);
+        Map<Long, ReservationAssignee> assignees = assigneesByStaffId(shopId);
         List<ReservationListResponse.Item> items = new ArrayList<>();
         for (Reservation r : reservations) {
             VehicleSummary vehicle = summaries.get(r.getVehicleId());
@@ -201,7 +205,8 @@ public class ReservationService implements ReservationReader {
                 r.getId(), r.getReservedAt(), r.getStatus(), r.needsAction(now), r.getVersion(),
                 r.getVehicleId(), vehicle.plateNumber(), vehicle.customerId(), vehicle.customerName(),
                 customerReader.maskPhone(vehicle.phone()),
-                purposeSummary(r, chosenByReservation.getOrDefault(r.getId(), List.of()), itemRefs)));
+                purposeSummary(r, chosenByReservation.getOrDefault(r.getId(), List.of()), itemRefs),
+                assigneeOf(assignees, r)));
         }
         return new ReservationListResponse(from, to, items);
     }
@@ -224,7 +229,8 @@ public class ReservationService implements ReservationReader {
         requireHalfHour(reservedAt);
         List<Long> itemIds = purposeItemIds(request.purpose());
         requireValidItems(shopId, itemIds);
-        long assigneeId = requireAssignee(shopId, request.assigneeId());
+        ReservationAssignee assignee = requireAssignee(shopId, request.assigneeId());
+        long assigneeId = assignee.staffId();
         requireNotPastDate(reservedAt);
         ReservationRef active = findActiveByVehicleIds(shopId, List.of(vehicleId)).get(vehicleId);
         if (active != null) {
@@ -242,7 +248,7 @@ public class ReservationService implements ReservationReader {
             reservationItemRepository.saveAll(
                 itemIds.stream().map(itemId -> ReservationItem.of(shopId, saved.getId(), itemId)).toList());
         }
-        return ReservationCreateResponse.of(saved);
+        return ReservationCreateResponse.of(saved, assignee);
     }
 
     /**
@@ -341,7 +347,7 @@ public class ReservationService implements ReservationReader {
         }
         Long newAssignee = null;
         if (request.assigneeId() != null) {
-            long requested = requireAssignee(shopId, request.assigneeId());
+            long requested = requireAssignee(shopId, request.assigneeId()).staffId();
             // 지금 담당과 같으면 재배정이 아니다. 마감 판정·이력 없이 넘기고, 다른 바뀐 것이 없으면 아래에서 400이다
             if (requested != reservation.getAssigneeStaffId()) {
                 newAssignee = requested;
@@ -395,7 +401,8 @@ public class ReservationService implements ReservationReader {
             reservationRevisionRepository.save(ReservationRevision.assigneeChanged(
                 shopId, reservation.getId(), staff.staffId(), reason, prevAssignee, newAssignee));
         }
-        return ReservationResponse.changed(reservation);
+        // 재배정했다면 이미 새 담당이 반영된 예약이므로 응답의 assignee는 새 담당이다 (08 19번 재배정 예시)
+        return ReservationResponse.changed(reservation, assigneeOf(assigneesByStaffId(shopId), reservation));
     }
 
     /**
@@ -403,15 +410,40 @@ public class ReservationService implements ReservationReader {
      * 400 {@code INVALID_INPUT}(필드 {@code assigneeId}, R19·R20·X13). 담당 후보는 {@code account.api}의 한 곳에서 가져온다.
      */
     // LIMIT: staff.active는 P1(V3)이라 지금은 모든 직원이 활성이다(08 8행). P1에서 비활성 직원은 후보에서 빠져 여기서도 거절된다
-    private long requireAssignee(long shopId, Long assigneeId) {
+    private ReservationAssignee requireAssignee(long shopId, Long assigneeId) {
         if (assigneeId == null) {
             throw BusinessException.invalidField("assigneeId", "필수 입력입니다.");
         }
-        boolean ofThisShop = staffReader.findAssignees(shopId).stream().anyMatch(a -> a.staffId() == assigneeId);
-        if (!ofThisShop) {
-            throw BusinessException.invalidField("assigneeId", "그 정비소의 사장·정비사를 선택해 주세요.");
+        return staffReader.findAssignees(shopId).stream()
+            .filter(a -> a.staffId() == assigneeId)
+            .findFirst()
+            .map(ReservationService::toAssignee)
+            .orElseThrow(() -> BusinessException.invalidField("assigneeId", "그 정비소의 사장·정비사를 선택해 주세요."));
+    }
+
+    /**
+     * 응답의 {@code assignee}(08 15·17·04·16·19번)를 만드는 재료: 그 정비소의 담당 후보를 staffId로 찾게 모은다. 이름과
+     * {@code colorIndex}는 {@code account.api}(API 36)와 같은 값이라 계산은 account 한 곳이고 여기서는 옮겨 담는다.
+     */
+    // LIMIT: staff.active는 P1(V3)이라 지금은 모든 직원이 담당 후보다. P1에서 비활성이 된 정비사의 과거 예약은 후보 목록에 없어
+    // 이 조회로는 이름을 못 찾아 assigneeOf가 IllegalStateException(500)을 내고, 그 예약이 한 건만 있어도 15·04·17·19 응답 전체로 번진다
+    // — 그때(P1 착수 전) 비활성 직원도 id로 조회하는 account.api 메서드를 더해야 한다(colorIndex는 비활성 포함 순번, 08 7.1)
+    private Map<Long, ReservationAssignee> assigneesByStaffId(long shopId) {
+        return staffReader.findAssignees(shopId).stream()
+            .collect(Collectors.toMap(AssigneeRef::staffId, ReservationService::toAssignee));
+    }
+
+    private static ReservationAssignee toAssignee(AssigneeRef ref) {
+        return new ReservationAssignee(ref.staffId(), ref.name(), ref.colorIndex());
+    }
+
+    /** 예약의 담당은 복합 FK로 같은 정비소 직원임이 보장된다(07). 없으면 서버 버그이므로 500으로 드러낸다. */
+    private static ReservationAssignee assigneeOf(Map<Long, ReservationAssignee> byStaffId, Reservation reservation) {
+        ReservationAssignee assignee = byStaffId.get(reservation.getAssigneeStaffId());
+        if (assignee == null) {
+            throw new IllegalStateException("예약 " + reservation.getId() + "의 담당 " + reservation.getAssigneeStaffId() + " 정보가 없다");
         }
-        return assigneeId;
+        return assignee;
     }
 
     /**

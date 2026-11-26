@@ -7,6 +7,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.wanted.chagok.domain.reservation.api.ReservationAssignee;
 import com.wanted.chagok.global.auth.CurrentStaff;
 import com.wanted.chagok.global.auth.LoginStaff;
 import com.wanted.chagok.global.auth.StaffRole;
@@ -54,13 +55,13 @@ class HomeControllerTest {
         .build();
 
     @Test
-    @DisplayName("04 성공: 08 응답 모양, shopId는 토큰의 값, P0-핵심 오늘 예약 줄에는 assignee가 없다")
+    @DisplayName("04 성공: 08 응답 모양(오늘 예약 줄마다 assignee 포함), shopId는 토큰의 값")
     void success() throws Exception {
         when(service.getHome(3L)).thenReturn(new HomeResponse(LocalDate.of(2026, 11, 24), 2, 5, List.of(
             new HomeResponse.TodayReservation(1L, LocalDateTime.of(2026, 11, 24, 10, 0), "RESERVED", false, 0, 4L,
-                "78라0004", 4L, "최지은", "010-0000-0004", "엔진오일"),
+                "78라0004", 4L, "최지은", "010-0000-0004", "엔진오일", new ReservationAssignee(1L, "박사장", 0)),
             new HomeResponse.TodayReservation(2L, LocalDateTime.of(2026, 11, 24, 14, 30), "RESERVED", false, 0, 7L,
-                "22사0007", 7L, "서민준", "010-0000-0007", null))));
+                "22사0007", 7L, "서민준", "010-0000-0007", null, new ReservationAssignee(2L, "김정비", 1)))));
 
         mvc.perform(get("/api/home"))
             .andExpect(status().isOk())
@@ -80,7 +81,11 @@ class HomeControllerTest {
             .andExpect(jsonPath("$.data.todayReservations[0].customerName").value("최지은"))
             .andExpect(jsonPath("$.data.todayReservations[0].phone").value("010-0000-0004"))
             .andExpect(jsonPath("$.data.todayReservations[0].purposeSummary").value("엔진오일"))
-            .andExpect(jsonPath("$.data.todayReservations[0].assignee").doesNotExist())
+            .andExpect(jsonPath("$.data.todayReservations[0].assignee.staffId").value(1))
+            .andExpect(jsonPath("$.data.todayReservations[0].assignee.name").value("박사장"))
+            .andExpect(jsonPath("$.data.todayReservations[0].assignee.colorIndex").value(0))
+            .andExpect(jsonPath("$.data.todayReservations[1].assignee.staffId").value(2))
+            .andExpect(jsonPath("$.data.todayReservations[1].assignee.colorIndex").value(1))
             .andExpect(jsonPath("$.data.todayReservations[1].purposeSummary").isEmpty());
 
         verify(service).getHome(3L);

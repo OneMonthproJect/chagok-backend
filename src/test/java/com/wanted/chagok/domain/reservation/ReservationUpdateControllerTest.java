@@ -12,6 +12,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.wanted.chagok.domain.reservation.api.ReservationAssignee;
 import com.wanted.chagok.domain.reservation.controller.ReservationActionController;
 import com.wanted.chagok.domain.reservation.dto.ReservationResponse;
 import com.wanted.chagok.domain.reservation.dto.ReservationUpdateRequest;
@@ -72,7 +73,8 @@ class ReservationUpdateControllerTest {
     @DisplayName("19 성공: 08 응답 모양(reservedAt 포함), 로그인 계정(shopId·역할)은 토큰의 값, 본문의 shopId·vehicleId는 읽지 않고 assigneeId는 재배정으로 읽는다 (X8)")
     void success() throws Exception {
         when(service.update(eq(STAFF), eq(3L), any(ReservationUpdateRequest.class))).thenReturn(
-            new ReservationResponse(3L, ReservationStatus.RESERVED, 2L, 1, LocalDateTime.of(2026, 11, 28, 9, 0)));
+            new ReservationResponse(3L, ReservationStatus.RESERVED, 2L, 1, LocalDateTime.of(2026, 11, 28, 9, 0),
+                new ReservationAssignee(1L, "박사장", 0)));
 
         patchReservation("/api/reservations/3",
             "{\"version\":0,\"reservedAt\":\"2026-11-28T09:00:00\",\"shopId\":99,\"assigneeId\":2,\"vehicleId\":77,"
@@ -84,7 +86,9 @@ class ReservationUpdateControllerTest {
             .andExpect(jsonPath("$.data.reservedAt").value("2026-11-28T09:00:00"))
             .andExpect(jsonPath("$.data.vehicleId").value(2))
             .andExpect(jsonPath("$.data.version").value(1))
-            .andExpect(jsonPath("$.data.assignee").doesNotExist())
+            .andExpect(jsonPath("$.data.assignee.staffId").value(1))
+            .andExpect(jsonPath("$.data.assignee.name").value("박사장"))
+            .andExpect(jsonPath("$.data.assignee.colorIndex").value(0))
             .andExpect(jsonPath("$.error").isEmpty());
 
         ArgumentCaptor<ReservationUpdateRequest> sent = ArgumentCaptor.forClass(ReservationUpdateRequest.class);
@@ -99,7 +103,8 @@ class ReservationUpdateControllerTest {
     @DisplayName("19 재배정: assigneeId·reassignReason은 service로 그대로 전달, 담당만 보내도 바꿀 필드가 있는 요청이다 (R24)")
     void reassignFieldsArePassedThrough() throws Exception {
         when(service.update(eq(STAFF), eq(3L), any(ReservationUpdateRequest.class))).thenReturn(
-            new ReservationResponse(3L, ReservationStatus.RESERVED, 2L, 1, LocalDateTime.of(2026, 11, 26, 10, 0)));
+            new ReservationResponse(3L, ReservationStatus.RESERVED, 2L, 1, LocalDateTime.of(2026, 11, 26, 10, 0),
+                new ReservationAssignee(1L, "박사장", 0)));
 
         patchReservation("/api/reservations/3", "{\"version\":0,\"assigneeId\":1,\"reassignReason\":\"고객 요청\"}")
             .andExpect(status().isOk());
@@ -115,7 +120,8 @@ class ReservationUpdateControllerTest {
     @DisplayName("19 reassignReason 201자 → 400 INVALID_INPUT(reassignReason), 200자는 통과, service 호출은 통과한 한 번뿐")
     void reassignReasonLength() throws Exception {
         when(service.update(eq(STAFF), eq(3L), any(ReservationUpdateRequest.class))).thenReturn(
-            new ReservationResponse(3L, ReservationStatus.RESERVED, 2L, 1, LocalDateTime.of(2026, 11, 26, 10, 0)));
+            new ReservationResponse(3L, ReservationStatus.RESERVED, 2L, 1, LocalDateTime.of(2026, 11, 26, 10, 0),
+                new ReservationAssignee(1L, "박사장", 0)));
 
         patchReservation("/api/reservations/3", "{\"version\":0,\"assigneeId\":1,\"reassignReason\":\"" + "가".repeat(201) + "\"}")
             .andExpect(status().isBadRequest())

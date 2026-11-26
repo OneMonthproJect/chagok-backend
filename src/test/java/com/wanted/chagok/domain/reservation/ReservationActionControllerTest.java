@@ -10,6 +10,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.wanted.chagok.domain.reservation.api.ReservationAssignee;
 import com.wanted.chagok.domain.reservation.controller.ReservationActionController;
 import com.wanted.chagok.domain.reservation.dto.ReservationResponse;
 import com.wanted.chagok.domain.reservation.entity.ReservationStatus;
@@ -66,7 +67,7 @@ class ReservationActionControllerTest {
     @DisplayName("R13 맞는 version → 200, 08 18번 응답(reservedAt 없음), shopId는 토큰의 값으로 service에 전달")
     void completeSuccess() throws Exception {
         when(service.complete(3L, 5L, 0))
-            .thenReturn(new ReservationResponse(5L, ReservationStatus.COMPLETED, 4L, 1, null));
+            .thenReturn(new ReservationResponse(5L, ReservationStatus.COMPLETED, 4L, 1, null, null));
 
         complete("/api/reservations/5/complete", "{\"version\":0}")
             .andExpect(status().isOk())
@@ -84,7 +85,7 @@ class ReservationActionControllerTest {
     @DisplayName("요청 본문의 shopId는 무시한다 (X8) — service에는 토큰의 shopId(3)만 간다")
     void bodyShopIdIsIgnored() throws Exception {
         when(service.complete(3L, 5L, 0))
-            .thenReturn(new ReservationResponse(5L, ReservationStatus.COMPLETED, 4L, 1, null));
+            .thenReturn(new ReservationResponse(5L, ReservationStatus.COMPLETED, 4L, 1, null, null));
 
         complete("/api/reservations/5/complete", "{\"version\":0,\"shopId\":99}").andExpect(status().isOk());
 
@@ -167,7 +168,7 @@ class ReservationActionControllerTest {
     @DisplayName("20 취소: 맞는 version → 200, 08 20번 응답(CANCELED, reservedAt 없음), shopId는 토큰의 값")
     void cancelSuccess() throws Exception {
         when(service.cancel(3L, 5L, 0))
-            .thenReturn(new ReservationResponse(5L, ReservationStatus.CANCELED, 4L, 1, null));
+            .thenReturn(new ReservationResponse(5L, ReservationStatus.CANCELED, 4L, 1, null, null));
 
         complete("/api/reservations/5/cancel", "{\"version\":0,\"shopId\":99}")
             .andExpect(status().isOk())
@@ -185,7 +186,7 @@ class ReservationActionControllerTest {
     @DisplayName("21 노쇼: 맞는 version → 200, 08 21번 응답(NO_SHOW), shopId는 토큰의 값")
     void noShowSuccess() throws Exception {
         when(service.markNoShow(3L, 5L, 0))
-            .thenReturn(new ReservationResponse(5L, ReservationStatus.NO_SHOW, 10L, 1, null));
+            .thenReturn(new ReservationResponse(5L, ReservationStatus.NO_SHOW, 10L, 1, null, null));
 
         complete("/api/reservations/5/no-show", "{\"version\":0}")
             .andExpect(status().isOk())

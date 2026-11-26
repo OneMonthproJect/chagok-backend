@@ -94,7 +94,7 @@ public class PanelService {
             .toList();
         return new PanelResponse.ReservationBlock(reservation.reservationId(), reservation.reservedAt(),
             reservation.status(), reservation.needsAction(), reservation.version(),
-            new PanelResponse.Purpose(items, reservation.purposeOther(), reservation.purposeMemo()));
+            new PanelResponse.Purpose(items, reservation.purposeOther(), reservation.purposeMemo()), reservation.assignee());
     }
 
     /** 쓰는 항목 전부를 {@code sortOrder} 순으로. 주행거리 없이 날짜 기준만 판정한다. 목적 항목({@code highlighted})도 자리를 옮기지 않는다(D-63 B02). */

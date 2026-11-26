@@ -7,6 +7,9 @@ import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import jakarta.persistence.Version;
+import com.wanted.chagok.global.error.BusinessException;
+import com.wanted.chagok.global.error.ErrorCode;
 import java.time.LocalDateTime;
 import org.springframework.data.annotation.CreatedDate;
 import org.springframework.data.annotation.LastModifiedDate;
@@ -34,6 +37,11 @@ public class Customer {
     @Column(nullable = false)
     private boolean consent;
 
+    /** 동시 수정 확인용 번호 (07 4장, POL-124). 0에서 시작하고, 값이 바뀌어 저장될 때마다 JPA가 1 올린다. */
+    @Version
+    @Column(name = "version", nullable = false)
+    private Integer version;
+
     @CreatedDate
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
@@ -57,6 +65,29 @@ public class Customer {
         return new Customer(shopId, name, phone, consent);
     }
 
+    /** 요청 {@code version}이 DB 값과 같은지 서버가 직접 비교한다 (08 22번). 다르면 409 {@code CONCURRENT_MODIFICATION}. */
+    public void requireVersion(int expectedVersion) {
+        if (version == null || version != expectedVersion) {
+            throw new BusinessException(ErrorCode.CONCURRENT_MODIFICATION);
+        }
+    }
+
+    /**
+     * 보낸 필드만 바꾼다 (04 F-CUS-06). {@code null}은 "보내지 않음"이다. 값이 지금과 같으면 아무것도 바뀌지 않아
+     * 저장해도 UPDATE가 없고 {@code version}도 오르지 않는다. 값 검증은 요청 DTO가 한다.
+     */
+    public void update(String name, String phone, Boolean consent) {
+        if (name != null) {
+            this.name = name;
+        }
+        if (phone != null) {
+            this.phone = phone;
+        }
+        if (consent != null) {
+            this.consent = consent;
+        }
+    }
+
     public Long getId() {
         return id;
     }
@@ -75,5 +106,9 @@ public class Customer {
 
     public boolean isConsent() {
         return consent;
+    }
+
+    public Integer getVersion() {
+        return version;
     }
 }

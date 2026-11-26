@@ -54,7 +54,7 @@ class CustomerDetailControllerTest {
     @DisplayName("07: 토큰의 shopId·경로의 customerId로 조회하고 08 예시 모양(phone 전체, 비어 있는 값은 null)으로 응답")
     void detail_usesTokenShopAndReturnsSpecShape() throws Exception {
         when(customerDetailService.getCustomerDetail(1L, 10L)).thenReturn(new CustomerDetailResponse(10, "오세훈",
-            "010-0000-0010", true, List.of(
+            "010-0000-0010", true, 2, List.of(
                 new CustomerDetailResponse.Vehicle(10, "55차0010", "쏘나타", 2018, 97_000, 0, 1),
                 new CustomerDetailResponse.Vehicle(11, "66카0011", "K3", null, null, 0, 0))));
 
@@ -64,6 +64,8 @@ class CustomerDetailControllerTest {
             .andExpect(jsonPath("$.error").isEmpty())
             .andExpect(jsonPath("$.data.customerId").value(10))
             .andExpect(jsonPath("$.data.name").value("오세훈"))
+            .andExpect(jsonPath("$.data.version").value(2))
+            .andExpect(jsonPath("$.data.vehicles[0].version").doesNotExist())
             .andExpect(jsonPath("$.data.phone").value("010-0000-0010"))
             .andExpect(jsonPath("$.data.consent").value(true))
             .andExpect(jsonPath("$.data.vehicles[0].vehicleId").value(10))
@@ -108,7 +110,7 @@ class CustomerDetailControllerTest {
         verifyNoInteractions(customerDetailService);
 
         when(customerDetailService.getCustomerDetail(anyLong(), anyLong()))
-            .thenReturn(new CustomerDetailResponse(10, "오세훈", "010-0000-0010", true, List.of()));
+            .thenReturn(new CustomerDetailResponse(10, "오세훈", "010-0000-0010", true, 0, List.of()));
         mvc.perform(get("/api/customers/10").header("Authorization", token(1, "OWNER"))).andExpect(status().isOk());
         mvc.perform(get("/api/customers/10").header("Authorization", token(1, "MECHANIC"))).andExpect(status().isOk());
     }

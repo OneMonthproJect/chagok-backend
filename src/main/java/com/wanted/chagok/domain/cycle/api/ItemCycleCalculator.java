@@ -34,4 +34,21 @@ public interface ItemCycleCalculator {
      * @return 상태와 근거
      */
     ItemCycleResult calculate(CycleRule rule, List<CycleRecord> records, LocalDate today, Integer visitMileage);
+
+    /**
+     * 지난 방문 거절·지난 점검 주의 표시를 판정한다 (04 F-CYC-02, T14·T15). 상태 계산({@link #calculate})과 별개이며
+     * 상태를 바꾸지 않는다. 표시 판정의 단일 원본이라 다른 곳에서 날짜 비교로 표시를 다시 계산하지 않는다 (CONVENTIONS 4장).
+     *
+     * <p>"가장 최근 기록"은 {@code calculate}의 기준 기록 선택과 같은 순서(날짜, 저장 시각, id)로 고른다.
+     * <ul>
+     *   <li>가장 최근 기록이 거절이고 기준 기록(교체·외부 중 가장 최근)보다 늦으면 {@code lastDecline}.
+     *       기준 기록이 아직 없어도(거절만 있어도) 표시한다.</li>
+     *   <li>가장 최근 기록이 점검이고 결과가 주의이면 {@code lastCaution}.</li>
+     *   <li>같은 항목이 다시 기록되면(구분 무관) 앞선 표시는 사라진다. 가장 최근 기록 하나만 보기 때문이다.</li>
+     * </ul>
+     *
+     * @param records 그 차량·그 항목의 정비 기록 전부. 비어 있으면 표시 없음
+     * @return 표시 판정 결과. 표시가 없으면 두 값이 모두 null
+     */
+    CycleNotes judgeNotes(List<CycleNoteRecord> records);
 }

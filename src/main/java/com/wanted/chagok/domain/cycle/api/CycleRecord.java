@@ -17,7 +17,7 @@ import java.util.Objects;
  * @param id          기록 id. {@code createdAt}도 같을 때 큰 것이 나중
  * @param type        응답에 그대로 보여 줄 구분 표시값 (예: {@code REPLACE}). {@code RecordType}은 maintenance 소속이라
  *                    cycle이 import할 수 없어 문자열로 받는다. F-CYC-01 계산은 이 값을 해석하지 않고
- *                    {@code resetsCycle}만 본다(F-CYC-02에서 거절·점검 판정이 필요하면 그때 확장한다)
+ *                    {@code resetsCycle}만 본다. 거절·점검 주의 표시(F-CYC-02)는 {@link CycleNoteRecord}로 따로 판정한다
  */
 public record CycleRecord(
         LocalDate date,

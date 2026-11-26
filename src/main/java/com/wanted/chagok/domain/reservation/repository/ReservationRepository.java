@@ -67,6 +67,23 @@ public interface ReservationRepository extends JpaRepository<Reservation, Long> 
                                              @Param("toExclusive") LocalDateTime toExclusive);
 
     /**
+     * 담당 중복 확인(API 16·19, R15~R18): 같은 담당이 같은 시작 시각에 가진 예약 중 상태가 {@code statuses}인 것.
+     * 시작 시각만 비교한다(소요 시간이 없다, 08 16번). 겹친 예약 번호를 돌려주려고 이른 id 순으로 읽는다.
+     */
+    @Query("""
+        select r from Reservation r
+        where r.shopId = :shopId
+          and r.assigneeStaffId = :assigneeId
+          and r.reservedAt = :reservedAt
+          and r.status in :statuses
+        order by r.id asc
+        """)
+    List<Reservation> findSlotConflicts(@Param("shopId") Long shopId,
+                                        @Param("assigneeId") Long assigneeId,
+                                        @Param("reservedAt") LocalDateTime reservedAt,
+                                        @Param("statuses") Collection<ReservationStatus> statuses);
+
+    /**
      * 월 요약(API 42)용: 기간 안 예약의 예약 일시와 상태 이름만. 상태는 문자열로 읽는다 — {@code IN_PROGRESS}·{@code NO_SHOW}는
      * V2 CHECK는 허용하지만 enum 값은 #33·#36이 더하므로, 엔티티로 읽으면 그 행에서 매핑 오류가 난다. 날짜별 집계는 service가 한다
      * (기간 최대 42일). 취소도 읽는다 — 상태별 건수에 필요하다.

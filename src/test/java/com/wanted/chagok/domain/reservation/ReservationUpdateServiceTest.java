@@ -12,6 +12,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
+import com.wanted.chagok.domain.account.api.StaffReader;
 import com.wanted.chagok.domain.customer.api.CustomerReader;
 import com.wanted.chagok.domain.item.api.ItemReader;
 import com.wanted.chagok.domain.reservation.dto.ReservationCreateRequest;
@@ -67,9 +68,11 @@ class ReservationUpdateServiceTest {
 
     @Mock
     private ItemReader itemReader;
+    @Mock
+    private StaffReader staffReader;
 
     private ReservationService service() {
-        return new ReservationService(repository, itemRepository, customerReader, itemReader, clock);
+        return new ReservationService(repository, itemRepository, customerReader, itemReader, staffReader, clock);
     }
 
     private static Reservation reservation(long id, LocalDateTime at, ReservationStatus status, int version) {

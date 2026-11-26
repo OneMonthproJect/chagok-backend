@@ -102,7 +102,7 @@ class ReservationServiceDbTest {
         LocalDateTime at = TODAY.plusDays(2).atTime(11, 30);
 
         ReservationCreateResponse created = service.create(shopA, staffA, new ReservationCreateRequest(vehicleA1, at,
-            new ReservationCreateRequest.Purpose(List.of(filter, oil), true, "엔진 소리")));
+            new ReservationCreateRequest.Purpose(List.of(filter, oil), true, "엔진 소리"), staffA));
         em.flush();
         em.clear();
 
@@ -134,10 +134,10 @@ class ReservationServiceDbTest {
     void createIsolation() {
         LocalDateTime at = TODAY.plusDays(2).atTime(10, 0);
 
-        assertThatThrownBy(() -> service.create(shopA, staffA, new ReservationCreateRequest(vehicleB, at, null)))
+        assertThatThrownBy(() -> service.create(shopA, staffA, new ReservationCreateRequest(vehicleB, at, null, staffA)))
             .isInstanceOfSatisfying(BusinessException.class, e -> assertThat(e.code()).isEqualTo(ErrorCode.NOT_FOUND));
         assertThatThrownBy(() -> service.create(shopA, staffA, new ReservationCreateRequest(vehicleA1, at,
-            new ReservationCreateRequest.Purpose(List.of(itemB), false, null))))
+            new ReservationCreateRequest.Purpose(List.of(itemB), false, null), staffA)))
             .isInstanceOfSatisfying(BusinessException.class, e -> assertThat(e.code()).isEqualTo(ErrorCode.INVALID_INPUT));
 
         assertThat(reservationCount(shopA)).isZero();
@@ -148,10 +148,10 @@ class ReservationServiceDbTest {
     @DisplayName("R3 같은 차량에 유효 예약이 있으면 409 + 기존 예약 번호, R4 어제 이전의 '처리 필요' 예약은 막지 않는다")
     void activeReservationRule() {
         ReservationCreateResponse first = service.create(shopA, staffA,
-            new ReservationCreateRequest(vehicleA1, TODAY.plusDays(3).atTime(10, 0), null));
+            new ReservationCreateRequest(vehicleA1, TODAY.plusDays(3).atTime(10, 0), null, staffA));
 
         assertThatThrownBy(() -> service.create(shopA, staffA,
-            new ReservationCreateRequest(vehicleA1, TODAY.plusDays(4).atTime(10, 0), null)))
+            new ReservationCreateRequest(vehicleA1, TODAY.plusDays(4).atTime(10, 0), null, staffA)))
             .isInstanceOfSatisfying(BusinessException.class, e -> {
                 assertThat(e.code()).isEqualTo(ErrorCode.RESERVATION_ACTIVE_EXISTS);
                 assertThat(e.details()).isEqualTo(Map.of("reservationId", first.reservationId()));
@@ -159,7 +159,7 @@ class ReservationServiceDbTest {
 
         insertReservation(shopA, vehicleA2, TODAY.minusDays(3).atTime(10, 0), "RESERVED", staffA); // 어제 이전 RESERVED
         ReservationCreateResponse second = service.create(shopA, staffA,
-            new ReservationCreateRequest(vehicleA2, TODAY.plusDays(4).atTime(10, 0), null));
+            new ReservationCreateRequest(vehicleA2, TODAY.plusDays(4).atTime(10, 0), null, staffA));
         assertThat(second.reservationId()).isPositive();
     }
 
@@ -389,7 +389,7 @@ class ReservationServiceDbTest {
 
     private long createReservation(long vehicleId, LocalDateTime at, List<Long> itemIds) {
         return service.create(shopA, staffA, new ReservationCreateRequest(vehicleId, at,
-            new ReservationCreateRequest.Purpose(itemIds, false, null))).reservationId();
+            new ReservationCreateRequest.Purpose(itemIds, false, null), staffA)).reservationId();
     }
 
     private static ReservationUpdateRequest update(int version, LocalDateTime at, List<Long> itemIds, Boolean other,

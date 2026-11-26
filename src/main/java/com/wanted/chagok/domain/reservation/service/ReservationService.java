@@ -1,5 +1,6 @@
 package com.wanted.chagok.domain.reservation.service;
 
+import com.wanted.chagok.domain.account.api.StaffReader;
 import com.wanted.chagok.domain.customer.api.CustomerReader;
 import com.wanted.chagok.domain.customer.api.VehicleSummary;
 import com.wanted.chagok.domain.item.api.ItemReader;
@@ -49,21 +50,28 @@ public class ReservationService implements ReservationReader {
     /** 08 15번: 기간은 최대 42일(월 보기 6주), 시작·끝 날짜를 모두 포함해 센다. */
     static final int MAX_PERIOD_DAYS = 42;
 
+    /** 같은 담당·같은 시작 시각을 막는 유효 예약의 상태: 예약·진행중 (08 16번, R15·R17). 취소·완료·노쇼는 막지 않는다. */
+    private static final List<ReservationStatus> SLOT_BLOCKING_STATUSES =
+        List.of(ReservationStatus.RESERVED, ReservationStatus.IN_PROGRESS);
+
     private final ReservationRepository reservationRepository;
     private final ReservationItemRepository reservationItemRepository;
     private final CustomerReader customerReader;
     private final ItemReader itemReader;
+    private final StaffReader staffReader;
     private final Clock clock;
 
     public ReservationService(ReservationRepository reservationRepository,
                               ReservationItemRepository reservationItemRepository,
                               CustomerReader customerReader,
                               ItemReader itemReader,
+                              StaffReader staffReader,
                               Clock clock) {
         this.reservationRepository = reservationRepository;
         this.reservationItemRepository = reservationItemRepository;
         this.customerReader = customerReader;
         this.itemReader = itemReader;
+        this.staffReader = staffReader;
         this.clock = clock;
     }
 
@@ -172,12 +180,13 @@ public class ReservationService implements ReservationReader {
     }
 
     /**
-     * API 16 예약 등록 (04 F-RSV-01, R1~R4·X4·X8·X11). 08 16번의 순서: 차량 소유(404) → 입력 검증(30분 단위·항목, 400) →
-     * 날짜 ≥ 오늘(400) → 같은 차량 유효 예약 1건(409) → 저장. 예약 행과 예약 목적 행은 한 트랜잭션이다.
-     * P0-핵심은 요청에 담당이 없고 등록한 계정이 담당이다(D-51).
+     * API 16 예약 등록 (04 F-RSV-01, R1~R4·R15~R20·X4·X8·X11·X13). 08 16번의 순서: 차량 소유(404) → 입력 검증(30분 단위·항목·
+     * 담당, 400) → 날짜 ≥ 오늘(400) → 같은 차량 유효 예약 1건(409) → 같은 담당·같은 시작 시각 유효 예약(409
+     * {@code MECHANIC_SLOT_CONFLICT}) → 저장. 예약 행과 예약 목적 행은 한 트랜잭션이다.
+     * P0-나머지부터 담당은 요청의 {@code assigneeId}이고 등록한 계정({@code staffId})은 등록자로만 남는다(D-51).
      *
-     * <p>LIMIT: 같은 차량 유효 예약 확인과 저장 사이에 다른 요청이 끼어들면 둘 다 저장된다(동시 요청 잠금은 P2,
-     * changelog D-22). 같은 차량에 거의 동시에 등록하는 일이 실제로 문제가 될 때 차량 단위 잠금을 더한다.
+     * <p>LIMIT: 같은 차량 유효 예약·같은 담당 시각 확인과 저장 사이에 다른 요청이 끼어들면 둘 다 저장된다(동시 요청 잠금은 P2,
+     * changelog D-22). 같은 차량·같은 담당에 거의 동시에 등록하는 일이 실제로 문제가 될 때 잠금을 더한다.
      */
     @Transactional
     public ReservationCreateResponse create(long shopId, long staffId, ReservationCreateRequest request) {
@@ -188,18 +197,20 @@ public class ReservationService implements ReservationReader {
         requireHalfHour(reservedAt);
         List<Long> itemIds = purposeItemIds(request.purpose());
         requireValidItems(shopId, itemIds);
+        long assigneeId = requireAssignee(shopId, request.assigneeId());
         requireNotPastDate(reservedAt);
         ReservationRef active = findActiveByVehicleIds(shopId, List.of(vehicleId)).get(vehicleId);
         if (active != null) {
             throw new BusinessException(ErrorCode.RESERVATION_ACTIVE_EXISTS,
                 Map.of("reservationId", active.reservationId()));
         }
+        requireNoSlotConflict(shopId, assigneeId, reservedAt, null);
 
         ReservationCreateRequest.Purpose purpose = request.purpose();
         boolean other = purpose != null && Boolean.TRUE.equals(purpose.other());
         String memo = purpose == null ? null : purpose.memo();
         Reservation saved = reservationRepository.save(
-            Reservation.register(shopId, vehicleId, reservedAt, other, memo, staffId));
+            Reservation.register(shopId, vehicleId, reservedAt, other, memo, assigneeId, staffId));
         if (!itemIds.isEmpty()) {
             reservationItemRepository.saveAll(
                 itemIds.stream().map(itemId -> ReservationItem.of(shopId, saved.getId(), itemId)).toList());
@@ -283,6 +294,9 @@ public class ReservationService implements ReservationReader {
                     throw new BusinessException(ErrorCode.RESERVATION_ACTIVE_EXISTS,
                         Map.of("reservationId", existing.getId()));
                 });
+            // 근거: 08 19번·R18 — 일시를 바꿔 같은 담당·같은 시작 시각의 유효 예약과 겹치면 409(자기 자신 제외). 담당 자체를 바꾸는
+            // 재배정(assigneeId)은 #37의 몫이라 여기서는 지금 담당 그대로 본다. 메모·항목만 바꿀 때는 시각이 그대로라 보지 않는다
+            requireNoSlotConflict(shopId, reservation.getAssigneeStaffId(), reservedAt, reservation.getId());
         }
 
         reservation.change(LocalDateTime.now(clock), reservedAt, purpose == null ? null : purpose.other(), purpose == null ? null : purpose.memo());
@@ -295,6 +309,36 @@ public class ReservationService implements ReservationReader {
         }
         reservationRepository.saveAndFlush(reservation);
         return ReservationResponse.changed(reservation);
+    }
+
+    /**
+     * 08 16번 입력 검증의 담당: 요청의 {@code assigneeId}가 그 정비소의 사장·정비사여야 한다. 없음·없는 id·다른 정비소 직원은
+     * 400 {@code INVALID_INPUT}(필드 {@code assigneeId}, R19·R20·X13). 담당 후보는 {@code account.api}의 한 곳에서 가져온다.
+     */
+    // LIMIT: staff.active는 P1(V3)이라 지금은 모든 직원이 활성이다(08 8행). P1에서 비활성 직원은 후보에서 빠져 여기서도 거절된다
+    private long requireAssignee(long shopId, Long assigneeId) {
+        if (assigneeId == null) {
+            throw BusinessException.invalidField("assigneeId", "필수 입력입니다.");
+        }
+        boolean ofThisShop = staffReader.findAssignees(shopId).stream().anyMatch(a -> a.staffId() == assigneeId);
+        if (!ofThisShop) {
+            throw BusinessException.invalidField("assigneeId", "그 정비소의 사장·정비사를 선택해 주세요.");
+        }
+        return assigneeId;
+    }
+
+    /**
+     * 08 16·19번 R15·R17·R18: 같은 담당이 같은 시작 시각에 예약·진행중 예약을 이미 가졌으면 409
+     * {@code MECHANIC_SLOT_CONFLICT}와 겹친 예약 번호. 같은 시각 다른 담당은 허용하고 취소·완료·노쇼는 막지 않는다.
+     * {@code excludeReservationId}는 변경할 때 자기 자신을 빼려는 값이다(등록은 null).
+     */
+    private void requireNoSlotConflict(long shopId, long assigneeId, LocalDateTime reservedAt, Long excludeReservationId) {
+        reservationRepository.findSlotConflicts(shopId, assigneeId, reservedAt, SLOT_BLOCKING_STATUSES).stream()
+            .filter(r -> !r.getId().equals(excludeReservationId))
+            .findFirst()
+            .ifPresent(existing -> {
+                throw new BusinessException(ErrorCode.MECHANIC_SLOT_CONFLICT, Map.of("reservationId", existing.getId()));
+            });
     }
 
     /** 정비소 소속 확인의 한 곳. 없거나 다른 정비소 것이면 같은 404 (CONVENTIONS 4장, 08 X-규칙). */

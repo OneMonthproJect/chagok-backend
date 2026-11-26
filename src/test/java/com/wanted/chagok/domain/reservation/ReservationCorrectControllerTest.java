@@ -78,7 +78,7 @@ class ReservationCorrectControllerTest {
     @DisplayName("40 성공: 18·20·21과 같은 응답 모양(reservedAt 없음), 로그인 계정은 토큰의 값, 요청 필드는 그대로 service로")
     void correctSuccess() throws Exception {
         when(service.correct(eq(STAFF), eq(4L), any(ReservationCorrectRequest.class)))
-            .thenReturn(new ReservationResponse(4L, ReservationStatus.CANCELED, 10L, 2, null));
+            .thenReturn(new ReservationResponse(4L, ReservationStatus.CANCELED, 10L, 2, null, null));
 
         correct(4, "{\"version\":1,\"status\":\"CANCELED\",\"reason\":\"고객이 전날 전화로 취소함\",\"shopId\":99}")
             .andExpect(status().isOk())
@@ -102,7 +102,7 @@ class ReservationCorrectControllerTest {
     @DisplayName("40 메모 정정 요청: purposeMemo는 빈 문자열도 그대로 전달된다 (비우기)")
     void memoPassedThrough() throws Exception {
         when(service.correct(eq(STAFF), eq(4L), any(ReservationCorrectRequest.class)))
-            .thenReturn(new ReservationResponse(4L, ReservationStatus.COMPLETED, 10L, 3, null));
+            .thenReturn(new ReservationResponse(4L, ReservationStatus.COMPLETED, 10L, 3, null, null));
 
         correct(4, "{\"version\":2,\"purposeMemo\":\"\"}").andExpect(status().isOk());
 

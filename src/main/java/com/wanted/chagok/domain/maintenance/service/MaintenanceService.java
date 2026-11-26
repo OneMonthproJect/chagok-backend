@@ -46,7 +46,10 @@ import org.springframework.transaction.annotation.Transactional;
 @Transactional(readOnly = true)
 public class MaintenanceService implements MaintenanceReader {
 
-    private static final String NOT_OPEN = "아직 사용할 수 없는 입력입니다.";
+    private static final String REQUIRED = "필수 입력입니다.";
+    private static final String EXTERNAL_ONLY = "외부 기록일 때만 입력할 수 있습니다.";
+    private static final int MAX_MILEAGE = 2_000_000;
+    private static final Set<String> INSPECT_RESULTS = Set.of("GOOD", "CAUTION");
 
     private final MaintenanceRecordRepository records;
     private final CustomerReader customers;
@@ -67,58 +70,96 @@ public class MaintenanceService implements MaintenanceReader {
 
     /**
      * API 12. 한 방문의 기록 행들을 한 {@code visit_key}로 저장하고, 같은 트랜잭션에서 차량의 연식·최근 주행거리를 반영한다
-     * (하나라도 실패하면 아무것도 저장하지 않는다). 담당은 저장한 계정이다(P0-핵심). 검증 순서는 차량 소속(404, X5) →
-     * P0-핵심에서 열지 않은 입력 → 방문일 → 항목 중복 → 쓰는 항목(X11) → 차량이 비어 있을 때 필수(D-58) → 저장.
+     * (하나라도 실패하면 아무것도 저장하지 않는다). 담당은 요청의 {@code mechanicId}(그 정비소 직원, X13)이고 없으면 저장한 계정이다.
+     * 검증 순서는 차량 소속(404, X5) → 방문일 → 구분별 입력(외부 정비일·주행거리, 점검 결과) → 항목 중복 → 쓰는 항목(X11) →
+     * 담당(X13) → 교체·점검이 있을 때 차량이 비어 있으면 필수(D-58) → 저장.
+     * 외부 기록은 {@code externalDate}·{@code externalMileage}를 기록일·주행거리로 저장한다(주기 재시작, T13).
      */
     @Transactional
     public VisitSaveResponse saveVisit(long shopId, long staffId, long vehicleId, VisitSaveRequest request) {
         VehicleRef vehicle = vehicleWriter.getOwnedVehicleForVisit(shopId, vehicleId);
 
-        rejectNotOpenInputs(request);
-        if (request.visitDate().isAfter(LocalDate.now(clock))) {
+        LocalDate today = LocalDate.now(clock);
+        if (request.visitDate().isAfter(today)) {
             throw BusinessException.invalidField("visitDate", "오늘 이전 날짜만 입력할 수 있습니다.");
         }
+        validateRecordInputs(request.records(), today);
         requireNoDuplicateItems(request.records());
         items.requireActiveItems(shopId,
             request.records().stream().map(VisitSaveRequest.RecordInput::itemId).toList(), "records[].itemId");
+        long mechanicId = resolveMechanic(shopId, staffId, request.mechanicId());
 
         Integer modelYear = request.vehicle() == null ? null : request.vehicle().modelYear();
-        CustomerWriter.requireVehicleInfo(vehicle, modelYear, request.mileage(), "vehicle.modelYear");
+        // 외부·거절만 있는 방문은 차량 정보를 강제하지 않는다 (08 12: 교체·점검 항목이 있을 때만 필수)
+        if (hasShopWork(request.records())) {
+            CustomerWriter.requireVehicleInfo(vehicle, modelYear, request.mileage(), "vehicle.modelYear");
+        }
         // 연식·주행거리의 범위 검증과 반영 규칙은 customer 한 곳에 있다. 실패하면 이 트랜잭션이 통째로 취소된다.
         vehicleWriter.applyVisit(shopId, vehicleId, modelYear, request.mileage());
 
         String visitKey = UUID.randomUUID().toString();
         List<MaintenanceRecord> rows = request.records().stream()
-            .map(r -> MaintenanceRecord.record(shopId, vehicleId, r.itemId(), visitKey, request.visitDate(),
-                request.mileage(), r.type(), staffId, blankToNull(r.memo())))
+            .map(r -> r.type() == RecordType.EXTERNAL
+                ? MaintenanceRecord.record(shopId, vehicleId, r.itemId(), visitKey, r.externalDate(),
+                    r.externalMileage(), r.type(), mechanicId, blankToNull(r.memo()), null)
+                : MaintenanceRecord.record(shopId, vehicleId, r.itemId(), visitKey, request.visitDate(),
+                    request.mileage(), r.type(), mechanicId, blankToNull(r.memo()), r.inspectResult()))
             .toList();
         return new VisitSaveResponse(vehicleId, visitKey, records.saveAll(rows).size());
     }
 
-    /** P0-핵심에서는 {@code REPLACE}·{@code INSPECT}만 받는다. 나머지 입력(외부·거절·점검 결과·담당 지정)은 모두 400 (08 12). */
-    private static void rejectNotOpenInputs(VisitSaveRequest request) {
+    /**
+     * 구분별 입력 검사 (08 12). 외부는 정비일 필수(오늘 이전)·주행거리 0~2,000,000, 점검 결과는 점검일 때만 GOOD·CAUTION.
+     * 외부 값은 외부 구분일 때만 받는다. 틀린 필드는 모두 모아 한 번에 알린다.
+     */
+    private static void validateRecordInputs(List<VisitSaveRequest.RecordInput> rows, LocalDate today) {
         List<FieldErrorDetail> errors = new ArrayList<>();
-        if (request.mechanicId() != null) {
-            errors.add(new FieldErrorDetail("mechanicId", NOT_OPEN));
-        }
-        List<VisitSaveRequest.RecordInput> rows = request.records();
         for (int i = 0; i < rows.size(); i++) {
             VisitSaveRequest.RecordInput r = rows.get(i);
             String at = "records[" + i + "].";
-            if (r.type() == RecordType.EXTERNAL || r.type() == RecordType.DECLINE) {
-                errors.add(new FieldErrorDetail(at + "type", NOT_OPEN));
-            }
-            if (r.externalDate() != null) {
-                errors.add(new FieldErrorDetail(at + "externalDate", NOT_OPEN));
-            }
-            if (r.externalMileage() != null) {
-                errors.add(new FieldErrorDetail(at + "externalMileage", NOT_OPEN));
+            if (r.type() == RecordType.EXTERNAL) {
+                if (r.externalDate() == null) {
+                    errors.add(new FieldErrorDetail(at + "externalDate", REQUIRED));
+                } else if (r.externalDate().isAfter(today)) {
+                    errors.add(new FieldErrorDetail(at + "externalDate", "오늘 이전 날짜만 입력할 수 있습니다."));
+                }
+                if (r.externalMileage() != null && (r.externalMileage() < 0 || r.externalMileage() > MAX_MILEAGE)) {
+                    errors.add(new FieldErrorDetail(at + "externalMileage", "0 ~ 2,000,000 사이로 입력해 주세요."));
+                }
+            } else {
+                if (r.externalDate() != null) {
+                    errors.add(new FieldErrorDetail(at + "externalDate", EXTERNAL_ONLY));
+                }
+                if (r.externalMileage() != null) {
+                    errors.add(new FieldErrorDetail(at + "externalMileage", EXTERNAL_ONLY));
+                }
             }
             if (r.inspectResult() != null) {
-                errors.add(new FieldErrorDetail(at + "inspectResult", NOT_OPEN));
+                if (r.type() != RecordType.INSPECT) {
+                    errors.add(new FieldErrorDetail(at + "inspectResult", "점검일 때만 입력할 수 있습니다."));
+                } else if (!INSPECT_RESULTS.contains(r.inspectResult())) {
+                    errors.add(new FieldErrorDetail(at + "inspectResult", "GOOD 또는 CAUTION만 입력할 수 있습니다."));
+                }
             }
         }
         throwIfAny(errors);
+    }
+
+    /** 담당 정비사: 요청에 없으면 저장한 계정, 있으면 그 정비소 직원이어야 한다. 없음·남의 것은 같은 400 (X13). */
+    private long resolveMechanic(long shopId, long staffId, Long mechanicId) {
+        if (mechanicId == null) {
+            return staffId;
+        }
+        // 근거: staff.role은 OWNER·MECHANIC 둘뿐이라(07 3.3) "그 정비소 직원"이 곧 사장·정비사다. 활성 판정은 P1(V3)부터 (08 0.1).
+        if (!staff.findNames(shopId, List.of(mechanicId)).containsKey(mechanicId)) {
+            throw BusinessException.invalidField("mechanicId", "담당 정비사를 확인해 주세요.");
+        }
+        return mechanicId;
+    }
+
+    /** 교체·점검이 하나라도 있으면 true. 외부·거절만 있는 방문이면 false. */
+    private static boolean hasShopWork(List<VisitSaveRequest.RecordInput> rows) {
+        return rows.stream().anyMatch(r -> r.type() == RecordType.REPLACE || r.type() == RecordType.INSPECT);
     }
 
     /** 같은 방문에 같은 항목을 두 번 넣을 수 없다 (05 POL-57). 요청 안의 중복이라 DB 제약은 없다(07 3.7). */

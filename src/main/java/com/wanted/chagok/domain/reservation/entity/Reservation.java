@@ -154,10 +154,7 @@ public class Reservation {
      * 취소 사유는 받지 않는다 (POL-100).
      */
     public void cancel(int expectedVersion) {
-        if (status != ReservationStatus.RESERVED && status != ReservationStatus.IN_PROGRESS) {
-            throw new BusinessException(ErrorCode.INVALID_STATUS_TRANSITION);
-        }
-        requireVersion(expectedVersion);
+        assertCompletable(expectedVersion);
         this.status = ReservationStatus.CANCELED;
     }
 

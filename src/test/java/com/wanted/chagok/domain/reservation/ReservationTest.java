@@ -175,7 +175,7 @@ class ReservationTest {
     @DisplayName("방문 접수는 RESERVED에서만 — 진행중·완료·취소는 409 INVALID_STATUS_TRANSITION, 상태 그대로")
     void startOnlyFromReserved() {
         for (ReservationStatus s : new ReservationStatus[] {ReservationStatus.IN_PROGRESS, ReservationStatus.COMPLETED,
-            ReservationStatus.CANCELED}) {
+            ReservationStatus.CANCELED, ReservationStatus.NO_SHOW}) {
             Reservation r = loaded(s, 0);
 
             assertCode(() -> r.start(0), ErrorCode.INVALID_STATUS_TRANSITION);

@@ -83,7 +83,7 @@ public class MaintenanceService implements MaintenanceReader {
             request.records().stream().map(VisitSaveRequest.RecordInput::itemId).toList(), "records[].itemId");
 
         Integer modelYear = request.vehicle() == null ? null : request.vehicle().modelYear();
-        requireVehicleInfo(vehicle, modelYear, request.mileage());
+        CustomerWriter.requireVehicleInfo(vehicle, modelYear, request.mileage(), "vehicle.modelYear");
         // 연식·주행거리의 범위 검증과 반영 규칙은 customer 한 곳에 있다. 실패하면 이 트랜잭션이 통째로 취소된다.
         vehicleWriter.applyVisit(shopId, vehicleId, modelYear, request.mileage());
 
@@ -129,18 +129,6 @@ public class MaintenanceService implements MaintenanceReader {
             if (!seen.add(rows.get(i).itemId())) {
                 errors.add(new FieldErrorDetail("records[" + i + "].itemId", "같은 항목을 두 번 넣을 수 없습니다."));
             }
-        }
-        throwIfAny(errors);
-    }
-
-    /** 차량에 연식이나 최근 주행거리가 비어 있으면 첫 저장 때 요청에 있어야 한다 (D-58). 둘 다 비었으면 둘 다 알린다. */
-    private static void requireVehicleInfo(VehicleRef vehicle, Integer modelYear, Integer mileage) {
-        List<FieldErrorDetail> errors = new ArrayList<>();
-        if (vehicle.modelYear() == null && modelYear == null) {
-            errors.add(new FieldErrorDetail("vehicle.modelYear", "차량의 연식이 비어 있어 입력해 주세요."));
-        }
-        if (vehicle.latestMileage() == null && mileage == null) {
-            errors.add(new FieldErrorDetail("mileage", "차량의 주행거리가 비어 있어 입력해 주세요."));
         }
         throwIfAny(errors);
     }

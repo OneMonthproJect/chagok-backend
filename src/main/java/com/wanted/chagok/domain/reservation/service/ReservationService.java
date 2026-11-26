@@ -24,7 +24,6 @@ import com.wanted.chagok.domain.reservation.repository.ReservationItemRepository
 import com.wanted.chagok.domain.reservation.repository.ReservationRepository;
 import com.wanted.chagok.global.error.BusinessException;
 import com.wanted.chagok.global.error.ErrorCode;
-import com.wanted.chagok.global.response.ApiResponse.FieldErrorDetail;
 import java.time.Clock;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -125,6 +124,8 @@ public class ReservationService implements ReservationReader {
     /**
      * 유효 예약 판정의 한 곳 (D-22·D-52): {@code RESERVED} + 예약 날짜 ≥ 오늘, 또는 {@code IN_PROGRESS}(날짜 무관). 이른 순.
      * 조회(14)·등록(16)·변경(19)이 같이 쓴다. 어제 날짜의 진행중 예약도 유효 예약이다(R23).
+     * 두 쿼리({@code findByVehiclesAndStatusFrom}·{@code findByVehiclesAndStatus})는 모두 {@code shopId} 조건이 있고
+     * {@code reservedAt, id} 순이라, 합쳐도 같은 순서 기준을 지킨다.
      */
     private List<Reservation> activeCandidates(long shopId, Collection<Long> vehicleIds) {
         List<Reservation> reserved = reservationRepository.findByVehiclesAndStatusFrom(
@@ -242,27 +243,13 @@ public class ReservationService implements ReservationReader {
         reservation.assertChangeable(request.version());
 
         VehicleRef vehicle = customerWriter.getOwnedVehicleForVisit(shopId, reservation.getVehicleId());
-        requireVehicleInfo(vehicle, request.modelYear(), request.mileage());
+        CustomerWriter.requireVehicleInfo(vehicle, request.modelYear(), request.mileage(), "modelYear");
         // 범위 검증과 "비어 있을 때만 채움·더 클 때만 갱신" 규칙은 customer 한 곳에 있다 (D-58)
-        customerWriter.applyVisit(shopId, reservation.getVehicleId(), request.modelYear(), request.mileage());
+        customerWriter.applyVisit(shopId, reservation.getVehicleId(), request.modelYear(), request.mileage(), "modelYear");
 
         reservation.start(request.version());
         reservationRepository.saveAndFlush(reservation);
         return ReservationResponse.changed(reservation);
-    }
-
-    /** 08 39번 D-58: 차량의 연식·최근 주행거리가 비어 있는데 요청에도 없으면 400 (필드별로 모아서 알린다). */
-    private static void requireVehicleInfo(VehicleRef vehicle, Integer modelYear, Integer mileage) {
-        List<FieldErrorDetail> errors = new ArrayList<>();
-        if (vehicle.modelYear() == null && modelYear == null) {
-            errors.add(new FieldErrorDetail("modelYear", "차량의 연식이 비어 있어 입력해 주세요."));
-        }
-        if (vehicle.latestMileage() == null && mileage == null) {
-            errors.add(new FieldErrorDetail("mileage", "차량의 주행거리가 비어 있어 입력해 주세요."));
-        }
-        if (!errors.isEmpty()) {
-            throw new BusinessException(ErrorCode.INVALID_INPUT, errors, null, null);
-        }
     }
 
     /**

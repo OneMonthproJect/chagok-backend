@@ -64,8 +64,8 @@ class VisitSaveItemStatusDbTest {
         oil = insertItem("ENGINE_OIL", "엔진오일", 1);
         filter = insertItem("AIR_CLEANER", "에어클리너", 2);
         // 엔진오일은 400일 전에 교체했다(주기 6개월 → 도래), 에어클리너는 기록이 없다(미확인)
-        jdbc.update("INSERT INTO maintenance_record (shop_id, vehicle_id, service_item_id, visit_key, record_date, mileage, record_type, source, staff_id, created_at) "
-            + "VALUES (?, ?, ?, '00000000-0000-4000-8000-000000000001', ?, 20000, 'REPLACE', 'SHOP', ?, NOW())",
+        jdbc.update("INSERT INTO maintenance_record (shop_id, vehicle_id, service_item_id, visit_key, record_date, mileage, record_type, source, staff_id, created_at, updated_at) "
+            + "VALUES (?, ?, ?, '00000000-0000-4000-8000-000000000001', ?, 20000, 'REPLACE', 'SHOP', ?, NOW(), NOW())",
             shop, vehicle, oil, today.minusDays(400), staff);
     }
 

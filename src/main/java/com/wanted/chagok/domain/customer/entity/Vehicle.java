@@ -7,6 +7,9 @@ import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import jakarta.persistence.Version;
+import com.wanted.chagok.global.error.BusinessException;
+import com.wanted.chagok.global.error.ErrorCode;
 import java.time.LocalDateTime;
 
 import org.hibernate.annotations.JdbcTypeCode;
@@ -49,6 +52,11 @@ public class Vehicle {
     @Column(name = "latest_mileage")
     private Integer latestMileage;
 
+    /** 동시 수정 확인용 번호 (07 4장, POL-124). 0에서 시작하고, 값이 바뀌어 저장될 때마다 JPA가 1 올린다. */
+    @Version
+    @Column(name = "version", nullable = false)
+    private Integer version;
+
     @CreatedDate
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
@@ -89,6 +97,33 @@ public class Vehicle {
         }
     }
 
+    /** 요청 {@code version}이 DB 값과 같은지 서버가 직접 비교한다 (08 23번). 다르면 409 {@code CONCURRENT_MODIFICATION}. */
+    public void requireVersion(int expectedVersion) {
+        if (version == null || version != expectedVersion) {
+            throw new BusinessException(ErrorCode.CONCURRENT_MODIFICATION);
+        }
+    }
+
+    /**
+     * 보낸 필드만 바꾼다 (04 F-CUS-06). {@code null}은 "보내지 않음"이라 비우는 수정은 없다(차종은 필수, 연식·주행거리는
+     * 값이 있으면 비울 수 없다). 고객은 바꾸지 않는다. 값이 지금과 같으면 {@code version}도 오르지 않는다.
+     * 방문 기록의 {@link #applyVisit}와 달리 최근 주행거리를 지금보다 작게도 고칠 수 있다.
+     */
+    public void update(String plateNumber, String model, Integer modelYear, Integer latestMileage) {
+        if (plateNumber != null) {
+            this.plateNumber = plateNumber;
+        }
+        if (model != null) {
+            this.model = model;
+        }
+        if (modelYear != null) {
+            this.modelYear = modelYear;
+        }
+        if (latestMileage != null) {
+            this.latestMileage = latestMileage;
+        }
+    }
+
     public Long getId() {
         return id;
     }
@@ -115,5 +150,9 @@ public class Vehicle {
 
     public Integer getLatestMileage() {
         return latestMileage;
+    }
+
+    public Integer getVersion() {
+        return version;
     }
 }

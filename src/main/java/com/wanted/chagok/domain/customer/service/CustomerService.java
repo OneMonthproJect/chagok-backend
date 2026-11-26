@@ -53,7 +53,10 @@ public class CustomerService implements CustomerReader, CustomerWriter {
         this.clock = clock;
     }
 
-    /** API 05. 비어 있는 {@code q}는 전체(최근 등록순). 검색어의 공백·하이픈은 무시한다. */
+    /**
+     * API 05. 비어 있는 {@code q}는 전체(최근 등록순). 검색어의 공백·하이픈은 무시한다. 검색은 저장된 전체 번호로 하고,
+     * 응답의 {@code phone}만 마스킹한다(08 0.5, F-CUS-07).
+     */
     public CustomerSearchResponse search(long shopId, String q, PageLimit limit) {
         PageRequest pageable = PageRequest.of(limit.page(), limit.size(), Sort.by(Sort.Direction.DESC, "id"));
         String keyword = q == null ? "" : q.replaceAll("[\\s-]+", "");
@@ -70,7 +73,7 @@ public class CustomerService implements CustomerReader, CustomerWriter {
                         Collectors.toList())));
 
         List<CustomerSearchResponse.Item> items = result.getContent().stream()
-            .map(c -> new CustomerSearchResponse.Item(c.getId(), c.getName(), c.getPhone(), c.isConsent(),
+            .map(c -> new CustomerSearchResponse.Item(c.getId(), c.getName(), maskPhone(c.getPhone()), c.isConsent(),
                 vehiclesByCustomer.getOrDefault(c.getId(), List.of())))
             .toList();
         return new CustomerSearchResponse(items, limit.page(), limit.size(), result.getTotalElements(),
@@ -160,6 +163,11 @@ public class CustomerService implements CustomerReader, CustomerWriter {
         }
         return new HashMap<>(vehicles.findSummaries(shopId, vehicleIds).stream()
             .collect(Collectors.toMap(VehicleSummary::vehicleId, Function.identity())));
+    }
+
+    @Override
+    public String maskPhone(String phone) {
+        return PhoneMasker.mask(phone);
     }
 
     @Override

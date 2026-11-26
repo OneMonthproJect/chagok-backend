@@ -134,6 +134,16 @@ class CustomerServiceDbTest {
     }
 
     @Test
+    @DisplayName("검색 F-CUS-07: 응답의 연락처는 마스킹되고(목록), 검색은 전체 번호로 되며 저장된 값은 그대로다")
+    void search_masksPhoneInResponseOnly() {
+        long id = register(shopA, "김민수", "010-0000-0001", "12가0001").customerId();
+
+        assertThat(search(shopA, "010-0000-0001").items()).extracting("phone").containsExactly("010-****-0001");
+        assertThat(search(shopA, "민수").items()).extracting("phone").containsExactly("010-****-0001");
+        assertThat(jdbc.queryForObject("SELECT phone FROM customer WHERE id = ?", String.class, id)).isEqualTo("010-0000-0001");
+    }
+
+    @Test
     @DisplayName("검색: % · _ 는 글자 그대로 찾는다(전체 일치로 번지지 않음)")
     void search_likeWildcardsAreLiteral() {
         register(shopA, "김민수", "010-0000-0001", "12가0001");

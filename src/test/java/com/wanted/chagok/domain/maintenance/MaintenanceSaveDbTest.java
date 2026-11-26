@@ -19,6 +19,9 @@ import java.time.Clock;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
+import java.util.TimeZone;
+import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Tag;
@@ -61,6 +64,20 @@ class MaintenanceSaveDbTest {
     private long filter;
     private long oilOfB;
     private LocalDate today;
+
+    private static TimeZone originalTimeZone;
+
+    /** 앱은 시작할 때 JVM 시간대를 서울로 고정한다(#65). 테스트는 main()을 거치지 않아 같은 값으로 맞춘다. 안 그러면 UTC인 CI에서 날짜가 하루 어긋난다. */
+    @BeforeAll
+    static void useAppTimeZone() {
+        originalTimeZone = TimeZone.getDefault();
+        TimeZone.setDefault(TimeZone.getTimeZone("Asia/Seoul"));
+    }
+
+    @AfterAll
+    static void restoreTimeZone() {
+        TimeZone.setDefault(originalTimeZone);
+    }
 
     @BeforeEach
     void data() {

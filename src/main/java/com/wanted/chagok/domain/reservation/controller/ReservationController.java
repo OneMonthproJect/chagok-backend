@@ -32,13 +32,17 @@ public class ReservationController {
         this.reservationService = reservationService;
     }
 
-    /** API 15 — 기간 조회. {@code from}·{@code to}는 둘 다 필수이고 둘 다 포함, 최대 42일 (08 15번). */
+    /**
+     * API 15 — 기간 조회. {@code from}·{@code to}는 둘 다 필수이고 둘 다 포함, 최대 42일 (08 15번).
+     * {@code assigneeId}는 선택(P0-나머지): 그 담당의 예약만 보는 화면 필터이고 데이터 권한이 아니다.
+     */
     @GetMapping
     public ApiResponse<ReservationListResponse> list(
             @CurrentStaff LoginStaff staff,
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
-            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to) {
-        return ApiResponse.ok(reservationService.list(staff.shopId(), from, to));
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
+            @RequestParam(required = false) Long assigneeId) {
+        return ApiResponse.ok(reservationService.list(staff.shopId(), from, to, assigneeId));
     }
 
     /** API 16 — 예약 등록. 등록한 계정이 담당으로 저장된다 (D-51). */

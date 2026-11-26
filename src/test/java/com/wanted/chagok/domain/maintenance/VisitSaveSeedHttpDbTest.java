@@ -235,17 +235,23 @@ class VisitSaveSeedHttpDbTest {
     }
 
     @Test
-    @DisplayName("P0-핵심에서 열지 않은 입력(외부·담당 지정)과 미래 방문일은 400이고, 토큰 없으면 401")
+    @DisplayName("없는 담당 정비사(X13)·정비일 없는 외부 기록·미래 방문일은 400이고, 토큰 없으면 401")
     void notOpenInputsAndAuth() throws Exception {
         long vehicle = vehicleA("12가0001");
         long oil = itemA("ENGINE_OIL");
         long recordsBefore = recordCount(vehicle);
 
         save(ownerA, vehicle, """
-            {"visitDate": "%s", "mileage": 55000, "mechanicId": 2,
+            {"visitDate": "%s", "mileage": 55000, "mechanicId": 999999,
              "records": [{"itemId": %d, "type": "EXTERNAL", "externalDate": "%s"}]}
             """.formatted(today, oil, today.minusDays(5)))
-            .andExpect(status().isBadRequest());
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.error.fieldErrors[0].field").value("mechanicId"));
+        save(ownerA, vehicle, """
+            {"visitDate": "%s", "mileage": 55000, "records": [{"itemId": %d, "type": "EXTERNAL"}]}
+            """.formatted(today, oil))
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.error.fieldErrors[0].field").value("records[0].externalDate"));
         save(ownerA, vehicle, """
             {"visitDate": "%s", "mileage": 55000, "records": [{"itemId": %d, "type": "REPLACE"}]}
             """.formatted(today.plusDays(1), oil))

@@ -152,6 +152,44 @@ class MaintenanceSaveDbTest {
     }
 
     @Test
+    @DisplayName("외부·거절·점검 결과·담당 지정이 저장된다 (Entity validate·CHECK 포함): 외부는 정비일·고객 진술, 점검 결과는 점검에만")
+    void saveExternalDeclineInspectResultAndMechanic() {
+        long mechanic = insertStaff(shopA, "a-mech2");
+        LocalDate externalDate = today.minusDays(40);
+
+        service.saveVisit(shopA, staffA, vehicleA, new VisitSaveRequest(today, 55_000, null, mechanic, List.of(
+            new RecordInput(oil, RecordType.EXTERNAL, "다른 곳에서 교체", externalDate, 48_000, null),
+            rec(filter, RecordType.DECLINE, "다음에 하기로 함"),
+            new RecordInput(insertItem(shopA, "WIPER", "와이퍼", 3), RecordType.INSPECT, null, null, null, "CAUTION"))));
+        em.flush();
+
+        List<Map<String, Object>> rows = jdbc.queryForList(
+            "SELECT record_type, record_date, mileage, source, staff_id, inspect_result "
+                + "FROM maintenance_record WHERE vehicle_id = ? ORDER BY id", vehicleA);
+        assertThat(rows).extracting(r -> r.get("record_type")).containsExactly("EXTERNAL", "DECLINE", "INSPECT");
+        assertThat(rows).extracting(r -> r.get("source")).containsExactly("CUSTOMER_STATEMENT", "SHOP", "SHOP");
+        assertThat(rows).extracting(r -> r.get("record_date").toString())
+            .containsExactly(externalDate.toString(), today.toString(), today.toString());
+        assertThat(rows).extracting(r -> ((Number) r.get("mileage")).intValue()).containsExactly(48_000, 55_000, 55_000);
+        assertThat(rows).extracting(r -> ((Number) r.get("staff_id")).longValue()).containsOnly(mechanic);
+        assertThat(rows).extracting(r -> r.get("inspect_result")).containsExactly(null, null, "CAUTION");
+    }
+
+    @Test
+    @DisplayName("X13: 다른 정비소 직원·없는 직원을 mechanicId로 보내면 400이고 아무것도 저장하지 않는다")
+    void mechanicOfOtherShop() {
+        long staffOfB = jdbc.queryForObject("SELECT id FROM staff WHERE shop_id = ?", Long.class, shopB);
+        for (long mechanic : new long[] {staffOfB, 999_999L}) {
+            assertThatThrownBy(() -> service.saveVisit(shopA, staffA, vehicleA, new VisitSaveRequest(today, 55_000,
+                null, mechanic, List.of(rec(oil, RecordType.REPLACE, null)))))
+                .isInstanceOfSatisfying(BusinessException.class, e -> assertThat(e.code()).isEqualTo(ErrorCode.INVALID_INPUT));
+        }
+        em.flush();
+
+        assertThat(count("maintenance_record", vehicleA)).isZero();
+    }
+
+    @Test
     @DisplayName("X5: 남의 정비소 차량·없는 차량은 404이고 B 정비소 기록·차량 값은 바뀌지 않는다")
     void notOwnedVehicle() {
         for (long vehicle : new long[] {vehicleB, 999_999L}) {
@@ -182,7 +220,7 @@ class MaintenanceSaveDbTest {
     }
 
     @Test
-    @DisplayName("미래 방문일·같은 항목 중복·P0-핵심에서 열지 않은 구분은 400이고 아무것도 저장하지 않는다")
+    @DisplayName("미래 방문일·같은 항목 중복·정비일 없는 외부 기록은 400이고 아무것도 저장하지 않는다")
     void invalidInputsSaveNothing() {
         assertThatThrownBy(() -> service.saveVisit(shopA, staffA, vehicleA,
             request(today.plusDays(1), 55_000, null, rec(oil, RecordType.REPLACE, null))))

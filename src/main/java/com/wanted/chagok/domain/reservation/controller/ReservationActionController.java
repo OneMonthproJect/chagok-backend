@@ -56,12 +56,12 @@ public class ReservationActionController {
 
     /**
      * API 19 — 예약 변경. 보낸 필드만 바꾸고(일시·예약 목적), 바꿀 필드가 없으면 400이다. 고객·차량은 바꿀 수 없다.
-     * 담당 재배정(assigneeId)은 P0-나머지라 읽지 않는다.
+     * 담당 재배정은 {@code assigneeId}(+ 당일 사장은 {@code reassignReason})로 한다 — 사장·정비사 구분은 service의 정책이 본다.
      */
     @PatchMapping("/{reservationId}")
     public ApiResponse<ReservationResponse> update(@CurrentStaff LoginStaff staff,
                                                    @PathVariable long reservationId,
                                                    @Valid @RequestBody ReservationUpdateRequest request) {
-        return ApiResponse.ok(reservationService.update(staff.shopId(), reservationId, request));
+        return ApiResponse.ok(reservationService.update(staff, reservationId, request));
     }
 }

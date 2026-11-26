@@ -17,6 +17,7 @@ import com.wanted.chagok.domain.reservation.entity.Reservation;
 import com.wanted.chagok.domain.reservation.entity.ReservationStatus;
 import com.wanted.chagok.domain.reservation.repository.ReservationItemRepository;
 import com.wanted.chagok.domain.reservation.repository.ReservationRepository;
+import com.wanted.chagok.domain.reservation.repository.ReservationRevisionRepository;
 import com.wanted.chagok.domain.reservation.service.ReservationService;
 import com.wanted.chagok.global.config.ClockConfig;
 import com.wanted.chagok.global.error.BusinessException;
@@ -53,6 +54,9 @@ class ReservationServiceTest {
     private ReservationItemRepository itemRepository;
 
     @Mock
+    private ReservationRevisionRepository revisionRepository;
+
+    @Mock
     private CustomerReader customerReader;
 
     @Mock
@@ -61,7 +65,7 @@ class ReservationServiceTest {
     private StaffReader staffReader;
 
     private ReservationService service() {
-        return new ReservationService(repository, itemRepository, customerReader, itemReader, staffReader, clock);
+        return new ReservationService(repository, itemRepository, revisionRepository, customerReader, itemReader, staffReader, clock);
     }
 
     private static Reservation reservation(long id, long shopId, long vehicleId, LocalDateTime at,

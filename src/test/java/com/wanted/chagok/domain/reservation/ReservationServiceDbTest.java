@@ -219,7 +219,7 @@ class ReservationServiceDbTest {
         em.flush();
         em.clear();
 
-        ReservationResponse response = service.update(shopA, id, update(0, null, List.of(filter), null, null));
+        ReservationResponse response = service.update(ReservationTestStaff.owner(shopA), id, update(0, null, List.of(filter), null, null));
         em.flush();
         em.clear();
 
@@ -227,14 +227,14 @@ class ReservationServiceDbTest {
         assertThat(dbVersion(id)).isEqualTo(1);
         assertThat(itemIds(id)).containsExactly(filter);
 
-        assertThatThrownBy(() -> service.update(shopA, id, update(0, null, List.of(oil), null, null)))
+        assertThatThrownBy(() -> service.update(ReservationTestStaff.owner(shopA), id, update(0, null, List.of(oil), null, null)))
             .isInstanceOfSatisfying(BusinessException.class,
                 e -> assertThat(e.code()).isEqualTo(ErrorCode.CONCURRENT_MODIFICATION));
         em.clear();
         assertThat(itemIds(id)).containsExactly(filter); // 실패한 요청은 목적 행을 바꾸지 않았다
         assertThat(dbVersion(id)).isEqualTo(1);
 
-        ReservationResponse second = service.update(shopA, id, update(1, null, List.of(oil), null, null));
+        ReservationResponse second = service.update(ReservationTestStaff.owner(shopA), id, update(1, null, List.of(oil), null, null));
         assertThat(second.version()).isEqualTo(2);
     }
 
@@ -246,7 +246,7 @@ class ReservationServiceDbTest {
         em.clear();
         LocalDateTime newAt = TODAY.plusDays(6).atTime(9, 0);
 
-        ReservationResponse response = service.update(shopA, id, update(0, newAt, List.of(filter), true, "메모"));
+        ReservationResponse response = service.update(ReservationTestStaff.owner(shopA), id, update(0, newAt, List.of(filter), true, "메모"));
         em.flush();
         em.clear();
 
@@ -264,12 +264,12 @@ class ReservationServiceDbTest {
     @DisplayName("메모만 바꿔도 version +1 한 번, 메모를 빈 문자열로 보내면 비워진다")
     void memoOnlyChange() {
         long id = createReservation(vehicleA1, TODAY.plusDays(3).atTime(10, 0), List.of());
-        service.update(shopA, id, update(0, null, null, null, "첫 메모"));
+        service.update(ReservationTestStaff.owner(shopA), id, update(0, null, null, null, "첫 메모"));
         em.flush();
         em.clear();
         assertThat(dbVersion(id)).isEqualTo(1);
 
-        service.update(shopA, id, update(1, null, null, null, ""));
+        service.update(ReservationTestStaff.owner(shopA), id, update(1, null, null, null, ""));
         em.flush();
         em.clear();
 
@@ -284,12 +284,12 @@ class ReservationServiceDbTest {
         em.flush();
         em.clear();
 
-        service.update(shopA, id, update(0, null, List.of(oil), null, null));
+        service.update(ReservationTestStaff.owner(shopA), id, update(0, null, List.of(oil), null, null));
         em.flush();
         em.clear();
         assertThat(itemIds(id)).containsExactly(oil);
 
-        service.update(shopA, id, update(1, null, List.of(), null, null));
+        service.update(ReservationTestStaff.owner(shopA), id, update(1, null, List.of(), null, null));
         em.flush();
         em.clear();
         assertThat(itemIds(id)).isEmpty();
@@ -303,7 +303,7 @@ class ReservationServiceDbTest {
         em.flush();
         em.clear();
 
-        assertThatThrownBy(() -> service.update(shopA, id, update(0, null, List.of(itemB), null, null)))
+        assertThatThrownBy(() -> service.update(ReservationTestStaff.owner(shopA), id, update(0, null, List.of(itemB), null, null)))
             .isInstanceOfSatisfying(BusinessException.class, e -> assertThat(e.code()).isEqualTo(ErrorCode.INVALID_INPUT));
         em.clear();
 
@@ -318,7 +318,7 @@ class ReservationServiceDbTest {
         em.flush();
         em.clear();
 
-        assertThatThrownBy(() -> service.update(shopB, id, update(0, TODAY.plusDays(5).atTime(9, 0), null, null, null)))
+        assertThatThrownBy(() -> service.update(ReservationTestStaff.owner(shopB), id, update(0, TODAY.plusDays(5).atTime(9, 0), null, null, null)))
             .isInstanceOfSatisfying(BusinessException.class, e -> assertThat(e.code()).isEqualTo(ErrorCode.NOT_FOUND));
         assertThatThrownBy(() -> service.complete(shopB, id, 0))
             .isInstanceOfSatisfying(BusinessException.class, e -> assertThat(e.code()).isEqualTo(ErrorCode.NOT_FOUND));
@@ -332,7 +332,7 @@ class ReservationServiceDbTest {
         assertThat(done.version()).isEqualTo(1);
         assertThat(dbVersion(id)).isEqualTo(1);
 
-        assertThatThrownBy(() -> service.update(shopA, id, update(1, TODAY.plusDays(5).atTime(9, 0), null, null, null)))
+        assertThatThrownBy(() -> service.update(ReservationTestStaff.owner(shopA), id, update(1, TODAY.plusDays(5).atTime(9, 0), null, null, null)))
             .isInstanceOfSatisfying(BusinessException.class,
                 e -> assertThat(e.code()).isEqualTo(ErrorCode.INVALID_STATUS_TRANSITION));
         assertThatThrownBy(() -> service.complete(shopA, id, 1))
@@ -348,12 +348,12 @@ class ReservationServiceDbTest {
         em.flush();
         em.clear();
 
-        assertThatThrownBy(() -> service.update(shopA, id, update(0, TODAY.plusDays(4).atTime(9, 0), null, null, null)))
+        assertThatThrownBy(() -> service.update(ReservationTestStaff.owner(shopA), id, update(0, TODAY.plusDays(4).atTime(9, 0), null, null, null)))
             .isInstanceOfSatisfying(BusinessException.class, e -> {
                 assertThat(e.code()).isEqualTo(ErrorCode.RESERVATION_ACTIVE_EXISTS);
                 assertThat(e.details()).isEqualTo(Map.of("reservationId", other));
             });
-        assertThatThrownBy(() -> service.update(shopA, id, update(0, TODAY.minusDays(1).atTime(9, 0), null, null, null)))
+        assertThatThrownBy(() -> service.update(ReservationTestStaff.owner(shopA), id, update(0, TODAY.minusDays(1).atTime(9, 0), null, null, null)))
             .isInstanceOfSatisfying(BusinessException.class,
                 e -> assertThat(e.code()).isEqualTo(ErrorCode.RESERVATION_PAST_DATE));
         em.clear();
@@ -368,7 +368,7 @@ class ReservationServiceDbTest {
         em.flush();
         em.clear();
 
-        service.update(shopA, past, update(0, null, null, null, "정정 메모"));
+        service.update(ReservationTestStaff.owner(shopA), past, update(0, null, null, null, "정정 메모"));
         em.flush();
         em.clear();
         assertThat(dbVersion(past)).isEqualTo(1);
@@ -376,7 +376,7 @@ class ReservationServiceDbTest {
             .isEqualTo("정정 메모");
         assertThat(reservations.findById(past).orElseThrow().getReservedAt()).isEqualTo(TODAY.minusDays(2).atTime(10, 0));
 
-        assertThatThrownBy(() -> service.update(shopA, past, update(1, TODAY.plusDays(2).atTime(9, 0), null, null, null)))
+        assertThatThrownBy(() -> service.update(ReservationTestStaff.owner(shopA), past, update(1, TODAY.plusDays(2).atTime(9, 0), null, null, null)))
             .isInstanceOfSatisfying(BusinessException.class, e -> {
                 assertThat(e.code()).isEqualTo(ErrorCode.RESERVATION_ACTIVE_EXISTS);
                 assertThat(e.details()).isEqualTo(Map.of("reservationId", future));
@@ -396,7 +396,7 @@ class ReservationServiceDbTest {
                                                    String memo) {
         boolean hasPurpose = itemIds != null || other != null || memo != null;
         return new ReservationUpdateRequest(version, at,
-            hasPurpose ? new ReservationCreateRequest.Purpose(itemIds, other, memo) : null);
+            hasPurpose ? new ReservationCreateRequest.Purpose(itemIds, other, memo) : null, null, null);
     }
 
     private int dbVersion(long reservationId) {

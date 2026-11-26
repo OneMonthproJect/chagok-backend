@@ -26,6 +26,7 @@ import com.wanted.chagok.domain.reservation.entity.ReservationItem;
 import com.wanted.chagok.domain.reservation.entity.ReservationStatus;
 import com.wanted.chagok.domain.reservation.repository.ReservationItemRepository;
 import com.wanted.chagok.domain.reservation.repository.ReservationRepository;
+import com.wanted.chagok.domain.reservation.repository.ReservationRevisionRepository;
 import com.wanted.chagok.domain.reservation.service.ReservationService;
 import com.wanted.chagok.global.auth.StaffRole;
 import com.wanted.chagok.global.config.ClockConfig;
@@ -68,6 +69,9 @@ class ReservationListCreateServiceTest {
     private ReservationItemRepository itemRepository;
 
     @Mock
+    private ReservationRevisionRepository revisionRepository;
+
+    @Mock
     private CustomerReader customerReader;
 
     @Mock
@@ -78,7 +82,7 @@ class ReservationListCreateServiceTest {
     private ReservationService service() {
         // 이 정비소의 담당 후보는 등록자(STAFF) 한 명. 목록 테스트는 쓰지 않으므로 lenient
         lenient().when(staffReader.findAssignees(SHOP)).thenReturn(List.of(new AssigneeRef(STAFF, "박사장", StaffRole.OWNER, 0)));
-        return new ReservationService(repository, itemRepository, customerReader, itemReader, staffReader, clock);
+        return new ReservationService(repository, itemRepository, revisionRepository, customerReader, itemReader, staffReader, clock);
     }
 
     private static ReservationCreateRequest request(LocalDateTime at, List<Long> itemIds, Boolean other, String memo) {

@@ -23,6 +23,7 @@ import com.wanted.chagok.domain.reservation.entity.ReservationItem;
 import com.wanted.chagok.domain.reservation.entity.ReservationStatus;
 import com.wanted.chagok.domain.reservation.repository.ReservationItemRepository;
 import com.wanted.chagok.domain.reservation.repository.ReservationRepository;
+import com.wanted.chagok.domain.reservation.repository.ReservationRevisionRepository;
 import com.wanted.chagok.domain.reservation.service.ReservationService;
 import com.wanted.chagok.global.config.ClockConfig;
 import com.wanted.chagok.global.error.BusinessException;
@@ -64,6 +65,9 @@ class ReservationUpdateServiceTest {
     private ReservationItemRepository itemRepository;
 
     @Mock
+    private ReservationRevisionRepository revisionRepository;
+
+    @Mock
     private CustomerReader customerReader;
 
     @Mock
@@ -72,7 +76,7 @@ class ReservationUpdateServiceTest {
     private StaffReader staffReader;
 
     private ReservationService service() {
-        return new ReservationService(repository, itemRepository, customerReader, itemReader, staffReader, clock);
+        return new ReservationService(repository, itemRepository, revisionRepository, customerReader, itemReader, staffReader, clock);
     }
 
     private static Reservation reservation(long id, LocalDateTime at, ReservationStatus status, int version) {
@@ -93,7 +97,7 @@ class ReservationUpdateServiceTest {
                                                     String memo) {
         boolean hasPurpose = itemIds != null || other != null || memo != null;
         return new ReservationUpdateRequest(version, at,
-            hasPurpose ? new ReservationCreateRequest.Purpose(itemIds, other, memo) : null);
+            hasPurpose ? new ReservationCreateRequest.Purpose(itemIds, other, memo) : null, null, null);
     }
 
     private static void assertCode(Runnable action, ErrorCode expected) {
@@ -114,7 +118,7 @@ class ReservationUpdateServiceTest {
         Reservation r = existing();
         when(repository.findByVehiclesAndStatusFrom(anyLong(), anyCollection(), any(), any())).thenReturn(List.of(r));
 
-        ReservationResponse response = service().update(SHOP, RES_ID,
+        ReservationResponse response = service().update(ReservationTestStaff.owner(SHOP), RES_ID,
             request(0, LocalDateTime.of(2026, 11, 28, 9, 0), null, null, null));
 
         assertThat(response.reservationId()).isEqualTo(RES_ID);
@@ -132,7 +136,7 @@ class ReservationUpdateServiceTest {
     void changePurposeOnly() {
         Reservation r = existing();
 
-        service().update(SHOP, RES_ID, request(0, null, List.of(1L, 4L), true, "새 메모"));
+        service().update(ReservationTestStaff.owner(SHOP), RES_ID, request(0, null, List.of(1L, 4L), true, "새 메모"));
 
         // 일시를 보내지 않았으므로 같은 차량 유효 예약 검사는 하지 않는다
         verify(repository, never()).findByVehiclesAndStatusFrom(anyLong(), anyCollection(), any(), any());
@@ -157,7 +161,7 @@ class ReservationUpdateServiceTest {
     void clearItemsAndMemo() {
         Reservation r = existing();
 
-        service().update(SHOP, RES_ID, request(0, null, List.of(), null, ""));
+        service().update(ReservationTestStaff.owner(SHOP), RES_ID, request(0, null, List.of(), null, ""));
 
         verify(itemRepository).deleteAllOf(SHOP, RES_ID);
         verify(itemRepository, never()).saveAll(any());
@@ -169,7 +173,7 @@ class ReservationUpdateServiceTest {
     @Test
     @DisplayName("R14 version만 보내고 바꿀 필드가 없음 → 400 INVALID_INPUT, 소유 확인(조회)보다 먼저, 아무것도 바뀌지 않음")
     void nothingToChange() {
-        assertInvalidInput(() -> service().update(SHOP, RES_ID, request(0, null, null, null, null)), "reservedAt");
+        assertInvalidInput(() -> service().update(ReservationTestStaff.owner(SHOP), RES_ID, request(0, null, null, null, null)), "reservedAt");
 
         verifyNoInteractions(repository, itemRepository, itemReader);
     }
@@ -179,7 +183,7 @@ class ReservationUpdateServiceTest {
     void notOwned() {
         when(repository.findByIdAndShopId(RES_ID, 9L)).thenReturn(Optional.empty());
 
-        assertCode(() -> service().update(9L, RES_ID,
+        assertCode(() -> service().update(ReservationTestStaff.owner(9L), RES_ID,
             request(0, LocalDateTime.of(2026, 11, 28, 9, 0), null, null, null)), ErrorCode.NOT_FOUND);
 
         verify(repository, never()).saveAndFlush(any());
@@ -191,7 +195,7 @@ class ReservationUpdateServiceTest {
         Reservation r = reservation(RES_ID, LocalDateTime.of(2026, 11, 26, 10, 0), ReservationStatus.COMPLETED, 1);
         when(repository.findByIdAndShopId(RES_ID, SHOP)).thenReturn(Optional.of(r));
 
-        assertCode(() -> service().update(SHOP, RES_ID,
+        assertCode(() -> service().update(ReservationTestStaff.owner(SHOP), RES_ID,
             request(1, LocalDateTime.of(2026, 11, 28, 9, 0), List.of(1L), null, null)),
             ErrorCode.INVALID_STATUS_TRANSITION);
 
@@ -206,7 +210,7 @@ class ReservationUpdateServiceTest {
         Reservation r = reservation(RES_ID, LocalDateTime.of(2026, 11, 26, 10, 0), ReservationStatus.RESERVED, 1);
         when(repository.findByIdAndShopId(RES_ID, SHOP)).thenReturn(Optional.of(r));
 
-        assertCode(() -> service().update(SHOP, RES_ID,
+        assertCode(() -> service().update(ReservationTestStaff.owner(SHOP), RES_ID,
             request(0, LocalDateTime.of(2026, 11, 28, 9, 0), List.of(1L), null, null)),
             ErrorCode.CONCURRENT_MODIFICATION);
 
@@ -219,12 +223,12 @@ class ReservationUpdateServiceTest {
     @DisplayName("R7 어제 날짜로 변경 → 400 RESERVATION_PAST_DATE / 오늘 이미 지난 시각은 허용")
     void pastDate() {
         Reservation r = existing();
-        assertCode(() -> service().update(SHOP, RES_ID,
+        assertCode(() -> service().update(ReservationTestStaff.owner(SHOP), RES_ID,
             request(0, LocalDateTime.of(2026, 11, 23, 10, 0), null, null, null)), ErrorCode.RESERVATION_PAST_DATE);
         verify(repository, never()).saveAndFlush(any());
 
         when(repository.findByVehiclesAndStatusFrom(anyLong(), anyCollection(), any(), any())).thenReturn(List.of(r));
-        service().update(SHOP, RES_ID, request(0, LocalDateTime.of(2026, 11, 24, 9, 0), null, null, null));
+        service().update(ReservationTestStaff.owner(SHOP), RES_ID, request(0, LocalDateTime.of(2026, 11, 24, 9, 0), null, null, null));
         assertThat(r.getReservedAt()).isEqualTo(LocalDateTime.of(2026, 11, 24, 9, 0));
     }
 
@@ -233,7 +237,7 @@ class ReservationUpdateServiceTest {
     void notHalfHour() {
         existing();
 
-        assertInvalidInput(() -> service().update(SHOP, RES_ID,
+        assertInvalidInput(() -> service().update(ReservationTestStaff.owner(SHOP), RES_ID,
             request(0, LocalDateTime.of(2026, 11, 28, 10, 15), null, null, null)), "reservedAt");
 
         verify(repository, never()).saveAndFlush(any());
@@ -246,7 +250,7 @@ class ReservationUpdateServiceTest {
         doThrow(BusinessException.invalidField("purpose.itemIds", "사용할 수 없는 항목입니다."))
             .when(itemReader).requireActiveItems(SHOP, List.of(99L), "purpose.itemIds");
 
-        assertInvalidInput(() -> service().update(SHOP, RES_ID, request(0, null, List.of(99L), null, null)),
+        assertInvalidInput(() -> service().update(ReservationTestStaff.owner(SHOP), RES_ID, request(0, null, List.of(99L), null, null)),
             "purpose.itemIds");
 
         verify(itemRepository, never()).deleteAllOf(anyLong(), anyLong());
@@ -258,7 +262,7 @@ class ReservationUpdateServiceTest {
     void duplicateItems() {
         existing();
 
-        assertInvalidInput(() -> service().update(SHOP, RES_ID, request(0, null, List.of(1L, 1L), null, null)),
+        assertInvalidInput(() -> service().update(ReservationTestStaff.owner(SHOP), RES_ID, request(0, null, List.of(1L, 1L), null, null)),
             "purpose.itemIds");
 
         verifyNoInteractions(itemReader);
@@ -272,7 +276,7 @@ class ReservationUpdateServiceTest {
         when(repository.findByVehiclesAndStatusFrom(anyLong(), anyCollection(), any(), any()))
             .thenReturn(List.of(r, other));
 
-        assertThatThrownBy(() -> service().update(SHOP, RES_ID,
+        assertThatThrownBy(() -> service().update(ReservationTestStaff.owner(SHOP), RES_ID,
             request(0, LocalDateTime.of(2026, 11, 28, 9, 0), null, null, null)))
             .isInstanceOfSatisfying(BusinessException.class, e -> {
                 assertThat(e.code()).isEqualTo(ErrorCode.RESERVATION_ACTIVE_EXISTS);
@@ -289,7 +293,7 @@ class ReservationUpdateServiceTest {
         Reservation r = existing();
         when(repository.findByVehiclesAndStatusFrom(anyLong(), anyCollection(), any(), any())).thenReturn(List.of(r));
 
-        service().update(SHOP, RES_ID, request(0, LocalDateTime.of(2026, 11, 29, 9, 30), null, null, null));
+        service().update(ReservationTestStaff.owner(SHOP), RES_ID, request(0, LocalDateTime.of(2026, 11, 29, 9, 30), null, null, null));
 
         verify(repository).saveAndFlush(r);
     }
@@ -306,7 +310,7 @@ class ReservationUpdateServiceTest {
     void memoOnlyChangeSkipsActiveCheck() {
         Reservation r = pastReserved();
 
-        ReservationResponse response = service().update(SHOP, RES_ID, request(0, null, null, null, "정정 메모"));
+        ReservationResponse response = service().update(ReservationTestStaff.owner(SHOP), RES_ID, request(0, null, null, null, "정정 메모"));
 
         verify(repository, never()).findByVehiclesAndStatusFrom(anyLong(), anyCollection(), any(), any());
         verify(repository).saveAndFlush(r);
@@ -323,7 +327,7 @@ class ReservationUpdateServiceTest {
         when(repository.findByVehiclesAndStatusFrom(anyLong(), anyCollection(), any(), any()))
             .thenReturn(List.of(other));
 
-        assertThatThrownBy(() -> service().update(SHOP, RES_ID,
+        assertThatThrownBy(() -> service().update(ReservationTestStaff.owner(SHOP), RES_ID,
             request(0, LocalDateTime.of(2026, 11, 28, 9, 0), null, null, null)))
             .isInstanceOfSatisfying(BusinessException.class, e -> {
                 assertThat(e.code()).isEqualTo(ErrorCode.RESERVATION_ACTIVE_EXISTS);
@@ -340,7 +344,7 @@ class ReservationUpdateServiceTest {
         Reservation r = pastReserved();
         when(repository.findByVehiclesAndStatusFrom(anyLong(), anyCollection(), any(), any())).thenReturn(List.of());
 
-        service().update(SHOP, RES_ID, request(0, LocalDateTime.of(2026, 11, 28, 9, 0), null, null, null));
+        service().update(ReservationTestStaff.owner(SHOP), RES_ID, request(0, LocalDateTime.of(2026, 11, 28, 9, 0), null, null, null));
 
         assertThat(r.getReservedAt()).isEqualTo(LocalDateTime.of(2026, 11, 28, 9, 0));
         verify(repository).saveAndFlush(r);
@@ -351,10 +355,10 @@ class ReservationUpdateServiceTest {
     void validationOrderMatchesCreate() {
         existing();
         // 10:15(30분 단위 아님) + 어제 날짜 + 항목 중복 → 30분 단위 오류가 첫 번째
-        assertInvalidInput(() -> service().update(SHOP, RES_ID,
+        assertInvalidInput(() -> service().update(ReservationTestStaff.owner(SHOP), RES_ID,
             request(0, LocalDateTime.of(2026, 11, 23, 10, 15), List.of(1L, 1L), null, null)), "reservedAt");
         // 30분은 맞고 항목 중복 + 어제 날짜 → 항목 오류가 날짜 오류보다 먼저
-        assertInvalidInput(() -> service().update(SHOP, RES_ID,
+        assertInvalidInput(() -> service().update(ReservationTestStaff.owner(SHOP), RES_ID,
             request(0, LocalDateTime.of(2026, 11, 23, 10, 0), List.of(1L, 1L), null, null)), "purpose.itemIds");
     }
 }

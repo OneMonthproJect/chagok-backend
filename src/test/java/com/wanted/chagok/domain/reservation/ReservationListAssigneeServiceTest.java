@@ -15,6 +15,7 @@ import com.wanted.chagok.domain.item.api.ItemReader;
 import com.wanted.chagok.domain.reservation.dto.ReservationListResponse;
 import com.wanted.chagok.domain.reservation.repository.ReservationItemRepository;
 import com.wanted.chagok.domain.reservation.repository.ReservationRepository;
+import com.wanted.chagok.domain.reservation.repository.ReservationRevisionRepository;
 import com.wanted.chagok.domain.reservation.service.ReservationService;
 import com.wanted.chagok.global.config.ClockConfig;
 import com.wanted.chagok.global.error.BusinessException;
@@ -37,7 +38,7 @@ class ReservationListAssigneeServiceTest {
     private final ReservationRepository repository = mock(ReservationRepository.class);
     private final Clock clock = Clock.fixed(Instant.parse("2026-11-24T06:00:00Z"), ClockConfig.SEOUL);
     private final ReservationService service = new ReservationService(
-        repository, mock(ReservationItemRepository.class), mock(CustomerReader.class), mock(ItemReader.class), mock(StaffReader.class), clock);
+        repository, mock(ReservationItemRepository.class), mock(ReservationRevisionRepository.class), mock(CustomerReader.class), mock(ItemReader.class), mock(StaffReader.class), clock);
 
     @Test
     @DisplayName("assigneeId가 있으면 그 담당의 예약만 조회한다 (정비소 조건 포함, 기존 조회는 부르지 않는다)")

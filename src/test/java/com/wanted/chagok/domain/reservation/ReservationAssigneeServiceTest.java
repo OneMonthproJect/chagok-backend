@@ -21,6 +21,7 @@ import com.wanted.chagok.domain.reservation.entity.Reservation;
 import com.wanted.chagok.domain.reservation.entity.ReservationStatus;
 import com.wanted.chagok.domain.reservation.repository.ReservationItemRepository;
 import com.wanted.chagok.domain.reservation.repository.ReservationRepository;
+import com.wanted.chagok.domain.reservation.repository.ReservationRevisionRepository;
 import com.wanted.chagok.domain.reservation.service.ReservationService;
 import com.wanted.chagok.global.auth.StaffRole;
 import com.wanted.chagok.global.config.ClockConfig;
@@ -53,13 +54,14 @@ class ReservationAssigneeServiceTest {
 
     private final ReservationRepository repository = mock(ReservationRepository.class);
     private final ReservationItemRepository itemRepository = mock(ReservationItemRepository.class);
+    private final ReservationRevisionRepository revisionRepository = mock(ReservationRevisionRepository.class);
     private final CustomerReader customerReader = mock(CustomerReader.class);
     private final ItemReader itemReader = mock(ItemReader.class);
     private final StaffReader staffReader = mock(StaffReader.class);
     // 2026-11-24 15:00 (Asia/Seoul)
     private final Clock clock = Clock.fixed(Instant.parse("2026-11-24T06:00:00Z"), ClockConfig.SEOUL);
     private final ReservationService service =
-        new ReservationService(repository, itemRepository, customerReader, itemReader, staffReader, clock);
+        new ReservationService(repository, itemRepository, revisionRepository, customerReader, itemReader, staffReader, clock);
 
     private void thisShopStaff() {
         when(staffReader.findAssignees(SHOP)).thenReturn(List.of(
@@ -220,7 +222,7 @@ class ReservationAssigneeServiceTest {
         when(repository.findSlotConflicts(eq(SHOP), eq(MECHANIC), eq(AT), anyCollection()))
             .thenReturn(List.of(existing(1L, MECHANIC, AT, ReservationStatus.IN_PROGRESS)));
 
-        assertThatThrownBy(() -> service.update(SHOP, 2L, new ReservationUpdateRequest(0, AT, null)))
+        assertThatThrownBy(() -> service.update(ReservationTestStaff.owner(SHOP), 2L, new ReservationUpdateRequest(0, AT, null, null, null)))
             .isInstanceOfSatisfying(BusinessException.class, e -> {
                 assertThat(e.code()).isEqualTo(ErrorCode.MECHANIC_SLOT_CONFLICT);
                 assertThat(e.details()).isEqualTo(Map.of("reservationId", 1L));
@@ -234,7 +236,7 @@ class ReservationAssigneeServiceTest {
         Reservation current = stubOwned(2L, MECHANIC, AT);
         when(repository.findSlotConflicts(eq(SHOP), eq(MECHANIC), eq(AT), anyCollection())).thenReturn(List.of(current));
 
-        service.update(SHOP, 2L, new ReservationUpdateRequest(0, AT, null));
+        service.update(ReservationTestStaff.owner(SHOP), 2L, new ReservationUpdateRequest(0, AT, null, null, null));
 
         verify(repository).saveAndFlush(current);
     }
@@ -245,7 +247,7 @@ class ReservationAssigneeServiceTest {
         stubOwned(2L, MECHANIC, LocalDateTime.of(2026, 11, 26, 9, 0));
         when(repository.findSlotConflicts(anyLong(), anyLong(), any(), anyCollection())).thenReturn(List.of());
 
-        service.update(SHOP, 2L, new ReservationUpdateRequest(0, AT, null));
+        service.update(ReservationTestStaff.owner(SHOP), 2L, new ReservationUpdateRequest(0, AT, null, null, null));
 
         verify(repository).findSlotConflicts(eq(SHOP), eq(MECHANIC), eq(AT), anyCollection());
     }
@@ -255,7 +257,7 @@ class ReservationAssigneeServiceTest {
     void updateWithoutTimeSkipsSlotCheck() {
         stubOwned(2L, MECHANIC, AT);
 
-        service.update(SHOP, 2L, new ReservationUpdateRequest(0, null, new ReservationCreateRequest.Purpose(null, null, "메모")));
+        service.update(ReservationTestStaff.owner(SHOP), 2L, new ReservationUpdateRequest(0, null, new ReservationCreateRequest.Purpose(null, null, "메모"), null, null));
 
         verify(repository, never()).findSlotConflicts(anyLong(), anyLong(), any(), anyCollection());
     }

@@ -189,6 +189,14 @@ public class Reservation {
     }
 
     /**
+     * 담당 재배정 (08 19번, D-53). 새 담당이 그 정비소 사장·정비사인지, 마감·사유가 맞는지는 service가 먼저 확인한 값이다.
+     * 수정 시각은 {@link #change}가 갱신하므로 같은 요청에서 {@code change}를 함께 불러 {@code version}이 오르게 한다.
+     */
+    public void reassignTo(long assigneeStaffId) {
+        this.assigneeStaffId = assigneeStaffId;
+    }
+
+    /**
      * "처리 필요" 표시 (08 15번 {@code needsAction}, D-23): 상태가 {@code RESERVED}인데 예약 시각이 현재보다 이전.
      * 시각이 지나도 상태는 바뀌지 않고 화면이 이 값으로 표시한다. 판정은 여기 한 곳이다(CONVENTIONS 4장).
      *

@@ -239,7 +239,7 @@ class ReservationSummaryDbTest {
      * ({@code IN_PROGRESS}·{@code NO_SHOW}는 enum에 없어도 V2 CHECK가 허용한다).
      */
     private long insertReservation(long shopId, long vehicleId, LocalDateTime at, String status, long staffId) {
-        Reservation saved = reservations.saveAndFlush(Reservation.register(shopId, vehicleId, at, false, null, staffId));
+        Reservation saved = reservations.saveAndFlush(Reservation.register(shopId, vehicleId, at, false, null, staffId, staffId));
         if (!"RESERVED".equals(status)) {
             jdbc.update("UPDATE reservation SET status = ? WHERE id = ?", status, saved.getId());
             em.clear();

@@ -147,9 +147,19 @@ public class ReservationService implements ReservationReader {
      */
     @Transactional(readOnly = true)
     public ReservationListResponse list(long shopId, LocalDate from, LocalDate to) {
+        return list(shopId, from, to, null);
+    }
+
+    /**
+     * API 15 기간 조회. {@code assigneeId}가 있으면 그 담당의 예약만("내 담당만" 보기, P0-나머지). 화면 필터일 뿐이라
+     * 정비소 조건은 그대로이고, 없는·다른 정비소의 담당 id는 오류가 아니라 빈 목록이다 (08 15번).
+     */
+    @Transactional(readOnly = true)
+    public ReservationListResponse list(long shopId, LocalDate from, LocalDate to, Long assigneeId) {
         validatePeriod(from, to);
-        List<Reservation> reservations = reservationRepository.findInPeriod(
-            shopId, from.atStartOfDay(), to.plusDays(1).atStartOfDay());
+        List<Reservation> reservations = assigneeId == null
+            ? reservationRepository.findInPeriod(shopId, from.atStartOfDay(), to.plusDays(1).atStartOfDay())
+            : reservationRepository.findInPeriodByAssignee(shopId, assigneeId, from.atStartOfDay(), to.plusDays(1).atStartOfDay());
         if (reservations.isEmpty()) {
             return new ReservationListResponse(from, to, List.of());
         }
@@ -334,8 +344,8 @@ public class ReservationService implements ReservationReader {
             .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND));
     }
 
-    /** 08 15번: {@code from}이 {@code to}보다 늦거나, 시작·끝을 포함해 42일을 넘으면 400 {@code INVALID_INPUT}. */
-    private static void validatePeriod(LocalDate from, LocalDate to) {
+    /** 08 15번: {@code from}이 {@code to}보다 늦거나, 시작·끝을 포함해 42일을 넘으면 400 {@code INVALID_INPUT}. 월 요약(42)도 같은 규칙이라 같은 패키지에서 쓴다. */
+    static void validatePeriod(LocalDate from, LocalDate to) {
         if (from.isAfter(to)) {
             throw BusinessException.invalidField("from", "시작일은 종료일보다 늦을 수 없습니다.");
         }

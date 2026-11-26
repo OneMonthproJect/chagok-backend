@@ -125,7 +125,7 @@ class ReservationServiceDbTest {
         assertThat(item.reservationId()).isEqualTo(created.reservationId());
         assertThat(item.plateNumber()).isEqualTo("12가0001");
         assertThat(item.customerName()).isEqualTo("김민수");
-        assertThat(item.phone()).isEqualTo("010-0000-0001");
+        assertThat(item.phone()).isEqualTo("010-****-0001");
         assertThat(item.purposeSummary()).isEqualTo("엔진오일·에어필터·기타"); // sortOrder 순 + 기타 맨 끝
         assertThat(item.needsAction()).isFalse();
     }

@@ -114,7 +114,8 @@ public class TargetService {
         }
         TargetListResponse.ActiveReservation reservation = activeReservation == null ? null
             : new TargetListResponse.ActiveReservation(activeReservation.reservationId(), activeReservation.reservedAt());
-        return new Row(new TargetListResponse.Item(vehicle.customerId(), vehicle.customerName(), vehicle.phone(),
+        return new Row(new TargetListResponse.Item(vehicle.customerId(), vehicle.customerName(),
+            customerReader.maskPhone(vehicle.phone()),
             vehicle.vehicleId(), vehicle.plateNumber(), targetItems, reservation), hasDue, earliestDueDate);
     }
 

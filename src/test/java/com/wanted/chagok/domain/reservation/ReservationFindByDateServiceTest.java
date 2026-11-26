@@ -93,6 +93,7 @@ class ReservationFindByDateServiceTest {
         when(customerReader.findVehicleSummaries(SHOP, Set.of(4L, 7L))).thenReturn(Map.of(
             4L, new VehicleSummary(4, "78라0004", 40, "최지은", "010-0000-0004", true),
             7L, new VehicleSummary(7, "22사0007", 70, "서민준", "010-0000-0007", true)));
+        when(customerReader.maskPhone("010-0000-0004")).thenReturn("010-****-0004"); // 목록용이라 마스킹한 값을 싣는다(F-CUS-07)
         when(itemRepository.findByShopIdAndReservationIdIn(SHOP, List.of(1L, 2L)))
             .thenReturn(List.of(ReservationItem.of(SHOP, 1, 1L)));
         when(itemReader.findItems(SHOP, Set.of(1L)))
@@ -103,7 +104,7 @@ class ReservationFindByDateServiceTest {
         assertThat(day.reservations()).extracting("reservationId").containsExactly(1L, 2L);
         assertThat(day.reservations().get(0).plateNumber()).isEqualTo("78라0004");
         assertThat(day.reservations().get(0).customerName()).isEqualTo("최지은");
-        assertThat(day.reservations().get(0).phone()).isEqualTo("010-0000-0004");
+        assertThat(day.reservations().get(0).phone()).isEqualTo("010-****-0004");
         assertThat(day.reservations().get(0).status()).isEqualTo("RESERVED");
         assertThat(day.reservations().get(0).purposeSummary()).isEqualTo("엔진오일");
         // 10:00은 지금(15:00)보다 이전이라 "처리 필요"이고, 14:30도 그렇다

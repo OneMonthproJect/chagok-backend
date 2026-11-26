@@ -199,7 +199,8 @@ public class ReservationService implements ReservationReader {
             }
             items.add(new ReservationListResponse.Item(
                 r.getId(), r.getReservedAt(), r.getStatus(), r.needsAction(now), r.getVersion(),
-                r.getVehicleId(), vehicle.plateNumber(), vehicle.customerId(), vehicle.customerName(), vehicle.phone(),
+                r.getVehicleId(), vehicle.plateNumber(), vehicle.customerId(), vehicle.customerName(),
+                customerReader.maskPhone(vehicle.phone()),
                 purposeSummary(r, chosenByReservation.getOrDefault(r.getId(), List.of()), itemRefs)));
         }
         return new ReservationListResponse(from, to, items);

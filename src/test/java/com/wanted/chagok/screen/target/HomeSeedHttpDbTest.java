@@ -116,7 +116,7 @@ class HomeSeedHttpDbTest {
             .andExpect(jsonPath("$.data.todayReservations[0].status").value("RESERVED"))
             .andExpect(jsonPath("$.data.todayReservations[0].version").value(0))
             .andExpect(jsonPath("$.data.todayReservations[0].customerName").value("최지은"))
-            .andExpect(jsonPath("$.data.todayReservations[0].phone").value("010-0000-0004"))
+            .andExpect(jsonPath("$.data.todayReservations[0].phone").value("010-****-0004"))
             .andExpect(jsonPath("$.data.todayReservations[0].purposeSummary").value("엔진오일"))
             .andExpect(jsonPath("$.data.todayReservations[0].assignee").doesNotExist())
             .andExpect(jsonPath("$.data.todayReservations[1].plateNumber").value("22사0007"))

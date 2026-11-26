@@ -112,7 +112,7 @@ class ReservationSeedHttpDbTest {
             .andExpect(jsonPath("$.data.items[0].version").value(0))
             .andExpect(jsonPath("$.data.items[0].purposeSummary").value("엔진오일"))
             .andExpect(jsonPath("$.data.items[0].assignee").doesNotExist())
-            .andExpect(jsonPath("$.data.items[0].phone").value(org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString("*"))))
+            .andExpect(jsonPath("$.data.items[0].phone").value(org.hamcrest.Matchers.containsString("****")))
             .andExpect(jsonPath("$.data.items[1].plateNumber").value("22사0007"))
             .andExpect(jsonPath("$.data.items[1].reservedAt").value(today + "T14:30:00"))
             .andExpect(jsonPath("$.data.items[1].purposeSummary").value("기타"));

@@ -15,6 +15,7 @@ import com.wanted.chagok.domain.customer.api.CustomerWriter;
 import com.wanted.chagok.domain.account.api.AssigneeRef;
 import com.wanted.chagok.domain.account.api.StaffReader;
 import com.wanted.chagok.domain.customer.api.CustomerReader;
+import com.wanted.chagok.domain.customer.api.CustomerWriter;
 import com.wanted.chagok.domain.item.api.ItemReader;
 import com.wanted.chagok.domain.reservation.dto.ReservationCreateRequest;
 import com.wanted.chagok.domain.reservation.dto.ReservationUpdateRequest;
@@ -57,6 +58,7 @@ class ReservationAssigneeServiceTest {
     private final ReservationItemRepository itemRepository = mock(ReservationItemRepository.class);
     private final ReservationRevisionRepository revisionRepository = mock(ReservationRevisionRepository.class);
     private final CustomerReader customerReader = mock(CustomerReader.class);
+    private final CustomerWriter customerWriter = mock(CustomerWriter.class);
     private final ItemReader itemReader = mock(ItemReader.class);
     private final StaffReader staffReader = mock(StaffReader.class);
     // 2026-11-24 15:00 (Asia/Seoul)

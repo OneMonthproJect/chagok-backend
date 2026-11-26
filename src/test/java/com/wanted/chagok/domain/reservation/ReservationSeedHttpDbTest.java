@@ -256,13 +256,19 @@ class ReservationSeedHttpDbTest {
                 .content("{\"loginId\":\"" + loginId + "\",\"password\":\"1234\"}"))
             .andExpect(status().isOk())
             .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
-        return "Bearer " + JsonPath.<String>read(body, "$.data.accessToken");
+        String token = "Bearer " + JsonPath.<String>read(body, "$.data.accessToken");
+        staffIdByToken.put(token, ((Number) JsonPath.read(body, "$.data.staff.staffId")).longValue());
+        return token;
     }
+
+    /** 로그인한 계정의 staffId(토큰별). P0-나머지부터 예약 등록은 담당 {@code assigneeId}가 필수라 자기 자신을 담당으로 보낸다. */
+    private final java.util.Map<String, Long> staffIdByToken = new java.util.HashMap<>();
 
     private org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder createRequest(
             String token, long vehicleId, String reservedAt, String extraJson) {
+        String assignee = extraJson.contains("assigneeId") ? "" : ",\"assigneeId\":" + staffIdByToken.get(token);
         return post("/api/reservations").header("Authorization", token).contentType(MediaType.APPLICATION_JSON)
-            .content("{\"vehicleId\":" + vehicleId + ",\"reservedAt\":\"" + reservedAt + "\"" + extraJson + "}");
+            .content("{\"vehicleId\":" + vehicleId + ",\"reservedAt\":\"" + reservedAt + "\"" + assignee + extraJson + "}");
     }
 
     private org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder patchRequest(String token, long id, String body) {

@@ -72,8 +72,6 @@ class ReservationStartServiceTest {
 
     @Mock
     private ItemReader itemReader;
-    @Mock
-    private StaffReader staffReader;
 
     private ReservationService service() {
         return new ReservationService(repository, itemRepository, revisionRepository, customerReader, customerWriter, itemReader, staffReader, clock);

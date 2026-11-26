@@ -16,7 +16,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * 예약 상태·일시를 바꾸는 API: 18 방문 완료, 19 변경.
+ * 예약 상태·일시를 바꾸는 API: 18 방문 완료, 19 변경, 20 취소, 21 노쇼.
  * 요청 받기·검증·응답 변환만 하고 업무 판단은 service·Entity가 한다 (CONVENTIONS 5장).
  * 사장·정비사 모두 가능하며 권한은 {@code SecurityConfig}의 {@code /api/**} 규칙이 한 곳에서 본다.
  */
@@ -36,6 +36,22 @@ public class ReservationActionController {
                                                      @PathVariable long reservationId,
                                                      @Valid @RequestBody ReservationCompleteRequest request) {
         return ApiResponse.ok(reservationService.complete(staff.shopId(), reservationId, request.version()));
+    }
+
+    /** API 20 — 취소(예약·진행중). 요청 본문은 {@code version}뿐이다(취소 사유 없음, POL-100). */
+    @PostMapping("/{reservationId}/cancel")
+    public ApiResponse<ReservationResponse> cancel(@CurrentStaff LoginStaff staff,
+                                                   @PathVariable long reservationId,
+                                                   @Valid @RequestBody ReservationCompleteRequest request) {
+        return ApiResponse.ok(reservationService.cancel(staff.shopId(), reservationId, request.version()));
+    }
+
+    /** API 21 — 노쇼(시각이 지난 예약만). 요청 본문은 {@code version}뿐이다. */
+    @PostMapping("/{reservationId}/no-show")
+    public ApiResponse<ReservationResponse> noShow(@CurrentStaff LoginStaff staff,
+                                                   @PathVariable long reservationId,
+                                                   @Valid @RequestBody ReservationCompleteRequest request) {
+        return ApiResponse.ok(reservationService.markNoShow(staff.shopId(), reservationId, request.version()));
     }
 
     /**

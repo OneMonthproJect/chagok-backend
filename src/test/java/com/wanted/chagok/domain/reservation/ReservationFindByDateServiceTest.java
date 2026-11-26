@@ -122,6 +122,25 @@ class ReservationFindByDateServiceTest {
     }
 
     @Test
+    @DisplayName("건수는 취소만 뺀다 — 노쇼(NO_SHOW)·진행중(IN_PROGRESS)은 세고, 시각이 지나도 \"처리 필요\"가 아니다 (08 04번, D-23)")
+    void countKeepsNoShowAndInProgress() {
+        when(repository.findInPeriod(anyLong(), any(), any()))
+            .thenReturn(List.of(
+                reservation(1, 4, LocalDateTime.of(2026, 11, 24, 10, 0), ReservationStatus.NO_SHOW, false, null),
+                reservation(2, 4, LocalDateTime.of(2026, 11, 24, 11, 0), ReservationStatus.IN_PROGRESS, false, null),
+                reservation(3, 4, LocalDateTime.of(2026, 11, 24, 12, 0), ReservationStatus.CANCELED, false, null)));
+        when(customerReader.findVehicleSummaries(anyLong(), anyCollection())).thenReturn(Map.of(
+            4L, new VehicleSummary(4, "78라0004", 40, "최지은", "010-0000-0004", true)));
+        when(itemRepository.findByShopIdAndReservationIdIn(anyLong(), anyCollection())).thenReturn(List.of());
+
+        ReservationDay day = service().findByDate(SHOP, DAY);
+
+        assertThat(day.countExcludingCancelled()).isEqualTo(2);
+        assertThat(day.reservations()).extracting("status").containsExactly("NO_SHOW", "IN_PROGRESS", "CANCELED");
+        assertThat(day.reservations()).extracting("needsAction").containsExactly(false, false, false);
+    }
+
+    @Test
     @DisplayName("예약이 없는 날은 건수 0·빈 목록이고 차량·항목은 읽지 않는다")
     void emptyDay() {
         when(repository.findInPeriod(anyLong(), any(), any()))

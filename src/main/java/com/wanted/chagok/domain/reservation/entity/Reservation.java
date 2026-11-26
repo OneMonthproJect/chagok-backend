@@ -78,25 +78,31 @@ public class Reservation {
     }
 
     private Reservation(long shopId, long vehicleId, LocalDateTime reservedAt, boolean purposeOther, String purposeMemo,
-                        long staffId) {
+                        long assigneeStaffId, long createdByStaffId) {
         this.shopId = shopId;
         this.vehicleId = vehicleId;
         this.reservedAt = reservedAt;
         this.status = ReservationStatus.RESERVED;
         this.purposeOther = purposeOther;
         this.purposeMemo = purposeMemo;
-        // 근거: 04 F-RSV-01, D-51 — P0-핵심은 요청에 담당이 없고 등록한 계정이 담당이다
-        this.assigneeStaffId = staffId;
-        this.createdByStaffId = staffId;
+        this.assigneeStaffId = assigneeStaffId;
+        this.createdByStaffId = createdByStaffId;
     }
 
     /**
      * 새 예약. 상태는 {@code RESERVED}, {@code version}은 저장할 때 0에서 시작한다(08 16번).
      * 30분 단위·날짜·같은 차량 유효 예약 같은 입력 검증은 service가 먼저 한다.
+     * 근거: 04 F-RSV-01, D-51 — P0-나머지부터 담당({@code assigneeStaffId})은 요청 값이고 등록자와 다를 수 있다.
      */
     public static Reservation register(long shopId, long vehicleId, LocalDateTime reservedAt, boolean purposeOther,
+                                       String purposeMemo, long assigneeStaffId, long createdByStaffId) {
+        return new Reservation(shopId, vehicleId, reservedAt, purposeOther, purposeMemo, assigneeStaffId, createdByStaffId);
+    }
+
+    /** 담당이 등록한 계정과 같은 예약(P0-핵심의 모양). 담당을 따로 고르지 않는 곳(테스트 자료 등)에서 쓴다. */
+    public static Reservation register(long shopId, long vehicleId, LocalDateTime reservedAt, boolean purposeOther,
                                        String purposeMemo, long staffId) {
-        return new Reservation(shopId, vehicleId, reservedAt, purposeOther, purposeMemo, staffId);
+        return register(shopId, vehicleId, reservedAt, purposeOther, purposeMemo, staffId, staffId);
     }
 
     /**

@@ -45,7 +45,7 @@ class ArchitectureTest {
         "customer", new String[] {},
         "item", new String[] {},
         "maintenance", new String[] {"customer", "item", "account"},
-        "reservation", new String[] {"customer", "item"},
+        "reservation", new String[] {"customer", "item", "account"}, // account.api: 담당 정비사 검증 (CONVENTIONS 3장, D-51, #35)
         "cycle", new String[] {}
     );
 

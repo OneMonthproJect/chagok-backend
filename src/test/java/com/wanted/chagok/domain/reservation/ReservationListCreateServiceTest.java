@@ -6,11 +6,14 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyCollection;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
+import com.wanted.chagok.domain.account.api.AssigneeRef;
+import com.wanted.chagok.domain.account.api.StaffReader;
 import com.wanted.chagok.domain.customer.api.CustomerReader;
 import com.wanted.chagok.domain.customer.api.CustomerWriter;
 import com.wanted.chagok.domain.customer.api.VehicleSummary;
@@ -25,6 +28,7 @@ import com.wanted.chagok.domain.reservation.entity.ReservationStatus;
 import com.wanted.chagok.domain.reservation.repository.ReservationItemRepository;
 import com.wanted.chagok.domain.reservation.repository.ReservationRepository;
 import com.wanted.chagok.domain.reservation.service.ReservationService;
+import com.wanted.chagok.global.auth.StaffRole;
 import com.wanted.chagok.global.config.ClockConfig;
 import com.wanted.chagok.global.error.BusinessException;
 import com.wanted.chagok.global.error.ErrorCode;
@@ -72,13 +76,17 @@ class ReservationListCreateServiceTest {
 
     @Mock
     private ItemReader itemReader;
+    @Mock
+    private StaffReader staffReader;
 
     private ReservationService service() {
-        return new ReservationService(repository, itemRepository, customerReader, customerWriter, itemReader, clock);
+        // 이 정비소의 담당 후보는 등록자(STAFF) 한 명. 목록 테스트는 쓰지 않으므로 lenient
+        lenient().when(staffReader.findAssignees(SHOP)).thenReturn(List.of(new AssigneeRef(STAFF, "박사장", StaffRole.OWNER, 0)));
+        return new ReservationService(repository, itemRepository, customerReader, customerWriter, itemReader, staffReader, clock);
     }
 
     private static ReservationCreateRequest request(LocalDateTime at, List<Long> itemIds, Boolean other, String memo) {
-        return new ReservationCreateRequest(VEHICLE, at, new ReservationCreateRequest.Purpose(itemIds, other, memo));
+        return new ReservationCreateRequest(VEHICLE, at, new ReservationCreateRequest.Purpose(itemIds, other, memo), STAFF);
     }
 
     private static Reservation reservation(long id, long vehicleId, LocalDateTime at, ReservationStatus status,
@@ -154,7 +162,7 @@ class ReservationListCreateServiceTest {
         saveAssignsIdAndVersion();
         when(repository.findByVehiclesAndStatusFrom(anyLong(), anyCollection(), any(), any())).thenReturn(List.of());
 
-        service().create(SHOP, STAFF, new ReservationCreateRequest(VEHICLE, LocalDateTime.of(2026, 11, 27, 11, 0), null));
+        service().create(SHOP, STAFF, new ReservationCreateRequest(VEHICLE, LocalDateTime.of(2026, 11, 27, 11, 0), null, STAFF));
 
         ArgumentCaptor<Reservation> saved = ArgumentCaptor.forClass(Reservation.class);
         verify(repository).save(saved.capture());

@@ -111,8 +111,9 @@ class ReservationConcurrencyDbTest {
     void concurrentUpdateOnlyOneWins() throws Exception {
         for (int round = 0; round < ROUNDS; round++) {
             long id = newReservation(true);
-            LocalDateTime atA = today.plusDays(10).atTime(9, 0);
-            LocalDateTime atB = today.plusDays(11).atTime(9, 0);
+            // 라운드마다 다른 시각으로 옮긴다: 같은 담당·같은 시각의 유효 예약은 등록·변경이 막히므로(R15·R18) 이전 라운드의 커밋된 예약과 겹치면 안 된다
+            LocalDateTime atA = today.plusDays(10).atTime(9, 0).plusMinutes(60L * round);
+            LocalDateTime atB = today.plusDays(11).atTime(9, 0).plusMinutes(60L * round);
 
             List<Outcome> results = race(
                 () -> send(patch("/api/reservations/" + id),

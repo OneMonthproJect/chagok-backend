@@ -3,6 +3,7 @@ package com.wanted.chagok.domain.reservation;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -73,7 +74,7 @@ class ReservationControllerTest {
     }
 
     private static final String VALID_BODY =
-        "{\"vehicleId\":1,\"reservedAt\":\"2026-11-27T11:30:00\",\"purpose\":{\"itemIds\":[1],\"other\":false,\"memo\":null}}";
+        "{\"vehicleId\":1,\"reservedAt\":\"2026-11-27T11:30:00\",\"purpose\":{\"itemIds\":[1],\"other\":false,\"memo\":null},\"assigneeId\":2}";
 
     // ---- API 15 ----
 
@@ -198,13 +199,40 @@ class ReservationControllerTest {
     }
 
     @Test
+    @DisplayName("16 assigneeId 누락 → 400 INVALID_INPUT + fieldErrors assigneeId, service 호출 없음 (R19, P0-나머지)")
+    void createRequiresAssigneeId() throws Exception {
+        create("{\"vehicleId\":1,\"reservedAt\":\"2026-11-27T11:30:00\",\"purpose\":{\"itemIds\":[1]}}")
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.error.code").value("INVALID_INPUT"))
+            .andExpect(jsonPath("$.error.fieldErrors[0].field").value("assigneeId"));
+        create("{\"vehicleId\":1,\"reservedAt\":\"2026-11-27T11:30:00\",\"assigneeId\":null}")
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.error.fieldErrors[0].field").value("assigneeId"));
+        verify(service, never()).create(anyLong(), anyLong(), any());
+    }
+
+    @Test
+    @DisplayName("16 service의 MECHANIC_SLOT_CONFLICT → 409 + details.reservationId (08 16번 예시 모양, R15)")
+    void createSlotConflictMapsTo409() throws Exception {
+        when(service.create(eq(3L), eq(7L), any())).thenThrow(
+            new BusinessException(ErrorCode.MECHANIC_SLOT_CONFLICT, Map.of("reservationId", 1)));
+
+        create(VALID_BODY)
+            .andExpect(status().isConflict())
+            .andExpect(jsonPath("$.error.code").value("MECHANIC_SLOT_CONFLICT"))
+            .andExpect(jsonPath("$.error.message").value("이 정비사는 해당 시각에 이미 예약이 있습니다. 다른 시각이나 다른 담당을 선택해 주세요."))
+            .andExpect(jsonPath("$.error.fieldErrors").isEmpty())
+            .andExpect(jsonPath("$.error.details.reservationId").value(1));
+    }
+
+    @Test
     @DisplayName("16 필수값(vehicleId·reservedAt) 누락 → 400 INVALID_INPUT + fieldErrors, service 호출 없음")
     void createMissingRequired() throws Exception {
-        create("{\"reservedAt\":\"2026-11-27T11:30:00\"}")
+        create("{\"reservedAt\":\"2026-11-27T11:30:00\",\"assigneeId\":2}")
             .andExpect(status().isBadRequest())
             .andExpect(jsonPath("$.error.code").value("INVALID_INPUT"))
             .andExpect(jsonPath("$.error.fieldErrors[0].field").value("vehicleId"));
-        create("{\"vehicleId\":1}")
+        create("{\"vehicleId\":1,\"assigneeId\":2}")
             .andExpect(status().isBadRequest())
             .andExpect(jsonPath("$.error.fieldErrors[0].field").value("reservedAt"));
         verify(service, never()).create(anyLong(), anyLong(), any());
@@ -217,12 +245,12 @@ class ReservationControllerTest {
             .thenReturn(new ReservationCreateResponse(5L, ReservationStatus.RESERVED,
                 LocalDateTime.of(2026, 11, 27, 11, 30), 1L, 0));
         String memo201 = "가".repeat(201);
-        create("{\"vehicleId\":1,\"reservedAt\":\"2026-11-27T11:30:00\",\"purpose\":{\"memo\":\"" + memo201 + "\"}}")
+        create("{\"vehicleId\":1,\"reservedAt\":\"2026-11-27T11:30:00\",\"purpose\":{\"memo\":\"" + memo201 + "\"},\"assigneeId\":2}")
             .andExpect(status().isBadRequest())
             .andExpect(jsonPath("$.error.fieldErrors[0].field").value("purpose.memo"));
-        create("{\"vehicleId\":1,\"reservedAt\":\"2026-11-27T11:30:00\",\"purpose\":{\"memo\":\"" + "가".repeat(200) + "\"}}")
+        create("{\"vehicleId\":1,\"reservedAt\":\"2026-11-27T11:30:00\",\"purpose\":{\"memo\":\"" + "가".repeat(200) + "\"},\"assigneeId\":2}")
             .andExpect(status().isOk());
-        create("{\"vehicleId\":1,\"reservedAt\":\"내일 오전\"}")
+        create("{\"vehicleId\":1,\"reservedAt\":\"내일 오전\",\"assigneeId\":2}")
             .andExpect(status().isBadRequest())
             .andExpect(jsonPath("$.error.code").value("INVALID_INPUT"));
         mvc.perform(post("/api/reservations").contentType(MediaType.APPLICATION_JSON))

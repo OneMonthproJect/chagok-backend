@@ -148,7 +148,8 @@ class HomeSeedHttpDbTest {
         mvc.perform(post("/api/reservations").header("Authorization", ownerA)
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"vehicleId\":" + vehicleOf("12가0001") + ",\"reservedAt\":\"" + today
-                    + "T18:00:00\",\"purpose\":{\"itemIds\":[],\"other\":false,\"memo\":null}}"))
+                    + "T18:00:00\",\"purpose\":{\"itemIds\":[],\"other\":false,\"memo\":null},\"assigneeId\":"
+                    + staffIdByToken.get(ownerA) + "}"))
             .andExpect(status().isOk());
 
         mvc.perform(get("/api/home").header("Authorization", ownerA))
@@ -175,6 +176,11 @@ class HomeSeedHttpDbTest {
                 .content("{\"loginId\":\"" + loginId + "\",\"password\":\"1234\"}"))
             .andExpect(status().isOk())
             .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
-        return "Bearer " + JsonPath.<String>read(body, "$.data.accessToken");
+        String token = "Bearer " + JsonPath.<String>read(body, "$.data.accessToken");
+        staffIdByToken.put(token, ((Number) JsonPath.read(body, "$.data.staff.staffId")).longValue());
+        return token;
     }
+
+    /** 로그인한 계정의 staffId(토큰별). P0-나머지부터 예약 등록은 담당 {@code assigneeId}가 필수라 자기 자신을 담당으로 보낸다. */
+    private final java.util.Map<String, Long> staffIdByToken = new java.util.HashMap<>();
 }

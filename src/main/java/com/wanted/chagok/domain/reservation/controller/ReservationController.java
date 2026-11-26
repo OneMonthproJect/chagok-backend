@@ -3,6 +3,7 @@ package com.wanted.chagok.domain.reservation.controller;
 import com.wanted.chagok.domain.reservation.dto.ReservationCreateRequest;
 import com.wanted.chagok.domain.reservation.dto.ReservationCreateResponse;
 import com.wanted.chagok.domain.reservation.dto.ReservationListResponse;
+import com.wanted.chagok.domain.reservation.dto.ReservationRevisionListResponse;
 import com.wanted.chagok.domain.reservation.service.ReservationService;
 import com.wanted.chagok.global.auth.CurrentStaff;
 import com.wanted.chagok.global.auth.LoginStaff;
@@ -11,6 +12,7 @@ import jakarta.validation.Valid;
 import java.time.LocalDate;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -18,7 +20,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * 예약 기간 조회(API 15)·등록(API 16). 요청 받기·검증·응답 변환만 하고 업무 판단은 service가 한다
+ * 예약 기간 조회(API 15)·등록(API 16)·이력 조회(API 41). 요청 받기·검증·응답 변환만 하고 업무 판단은 service가 한다
  * (CONVENTIONS 5장). 정비소와 담당은 요청 값이 아니라 로그인 정보에서만 온다 (08 0.1, D-51).
  * 사장·정비사 모두 가능하며 권한은 {@code SecurityConfig}의 {@code /api/**} 규칙이 한 곳에서 본다.
  */
@@ -43,6 +45,15 @@ public class ReservationController {
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
             @RequestParam(required = false) Long assigneeId) {
         return ApiResponse.ok(reservationService.list(staff.shopId(), from, to, assigneeId));
+    }
+
+    /**
+     * API 41 — 예약 이력(재배정·정정) 조회. 사장·정비사 모두 볼 수 있고 남의 예약은 404다(X14). 정비소는 토큰의 값만 쓴다.
+     */
+    @GetMapping("/{reservationId}/revisions")
+    public ApiResponse<ReservationRevisionListResponse> revisions(@CurrentStaff LoginStaff staff,
+                                                                  @PathVariable long reservationId) {
+        return ApiResponse.ok(reservationService.revisions(staff.shopId(), reservationId));
     }
 
     /** API 16 — 예약 등록. 등록한 계정이 담당으로 저장된다 (D-51). */

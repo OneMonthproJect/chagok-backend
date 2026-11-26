@@ -24,7 +24,7 @@ class ReservationCancelNoShowTest {
 
     /** DB에서 읽어 온 것처럼 version·상태를 맞춘 예약 (저장 전에는 version이 null). */
     private static Reservation loaded(ReservationStatus status, int version) {
-        Reservation r = Reservation.register(1L, 10L, AT, false, null, 7L);
+        Reservation r = Reservation.register(1L, 10L, AT, false, null, 7L, 7L);
         ReflectionTestUtils.setField(r, "status", status);
         ReflectionTestUtils.setField(r, "version", version);
         return r;

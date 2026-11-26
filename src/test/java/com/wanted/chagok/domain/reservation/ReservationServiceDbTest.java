@@ -101,7 +101,7 @@ class ReservationServiceDbTest {
     void createThenList() {
         LocalDateTime at = TODAY.plusDays(2).atTime(11, 30);
 
-        ReservationCreateResponse created = service.create(shopA, staffA, new ReservationCreateRequest(vehicleA1, at,
+        ReservationCreateResponse created = service.create(shopA, staffA, new ReservationCreateRequest(vehicleA1, at, staffA,
             new ReservationCreateRequest.Purpose(List.of(filter, oil), true, "엔진 소리")));
         em.flush();
         em.clear();
@@ -134,9 +134,9 @@ class ReservationServiceDbTest {
     void createIsolation() {
         LocalDateTime at = TODAY.plusDays(2).atTime(10, 0);
 
-        assertThatThrownBy(() -> service.create(shopA, staffA, new ReservationCreateRequest(vehicleB, at, null)))
+        assertThatThrownBy(() -> service.create(shopA, staffA, new ReservationCreateRequest(vehicleB, at, staffA, null)))
             .isInstanceOfSatisfying(BusinessException.class, e -> assertThat(e.code()).isEqualTo(ErrorCode.NOT_FOUND));
-        assertThatThrownBy(() -> service.create(shopA, staffA, new ReservationCreateRequest(vehicleA1, at,
+        assertThatThrownBy(() -> service.create(shopA, staffA, new ReservationCreateRequest(vehicleA1, at, staffA,
             new ReservationCreateRequest.Purpose(List.of(itemB), false, null))))
             .isInstanceOfSatisfying(BusinessException.class, e -> assertThat(e.code()).isEqualTo(ErrorCode.INVALID_INPUT));
 
@@ -148,10 +148,10 @@ class ReservationServiceDbTest {
     @DisplayName("R3 같은 차량에 유효 예약이 있으면 409 + 기존 예약 번호, R4 어제 이전의 '처리 필요' 예약은 막지 않는다")
     void activeReservationRule() {
         ReservationCreateResponse first = service.create(shopA, staffA,
-            new ReservationCreateRequest(vehicleA1, TODAY.plusDays(3).atTime(10, 0), null));
+            new ReservationCreateRequest(vehicleA1, TODAY.plusDays(3).atTime(10, 0), staffA, null));
 
         assertThatThrownBy(() -> service.create(shopA, staffA,
-            new ReservationCreateRequest(vehicleA1, TODAY.plusDays(4).atTime(10, 0), null)))
+            new ReservationCreateRequest(vehicleA1, TODAY.plusDays(4).atTime(10, 0), staffA, null)))
             .isInstanceOfSatisfying(BusinessException.class, e -> {
                 assertThat(e.code()).isEqualTo(ErrorCode.RESERVATION_ACTIVE_EXISTS);
                 assertThat(e.details()).isEqualTo(Map.of("reservationId", first.reservationId()));
@@ -159,7 +159,7 @@ class ReservationServiceDbTest {
 
         insertReservation(shopA, vehicleA2, TODAY.minusDays(3).atTime(10, 0), "RESERVED", staffA); // 어제 이전 RESERVED
         ReservationCreateResponse second = service.create(shopA, staffA,
-            new ReservationCreateRequest(vehicleA2, TODAY.plusDays(4).atTime(10, 0), null));
+            new ReservationCreateRequest(vehicleA2, TODAY.plusDays(4).atTime(10, 0), staffA, null));
         assertThat(second.reservationId()).isPositive();
     }
 
@@ -387,8 +387,108 @@ class ReservationServiceDbTest {
 
     // ------------------------------------------------------------------ helpers
 
+    // ------------------------------------------------------------------ 담당 선택·중복 제한 (API 16·19, R15~R20)
+
+    @Test
+    @DisplayName("담당은 요청의 assigneeId로 저장되고 등록자는 토큰의 계정이다 (실제 account 구현으로 후보 확인)")
+    void assigneeIsStoredFromTheRequest() {
+        long mechanicA = insertStaff(shopA, "t_m_" + suffix);
+
+        ReservationCreateResponse created = service.create(shopA, staffA, new ReservationCreateRequest(vehicleA1,
+            TODAY.plusDays(2).atTime(9, 0), mechanicA, null));
+        em.flush();
+
+        Map<String, Object> row = jdbc.queryForMap(
+            "SELECT assignee_staff_id, created_by_staff_id FROM reservation WHERE id = ?", created.reservationId());
+        assertThat(((Number) row.get("assignee_staff_id")).longValue()).isEqualTo(mechanicA);
+        assertThat(((Number) row.get("created_by_staff_id")).longValue()).isEqualTo(staffA);
+    }
+
+    @Test
+    @DisplayName("R15·R16 같은 담당+같은 시각은 409 + 겹친 예약 번호, 같은 시각 다른 담당·같은 담당 다른 시각(10:30)은 성공")
+    void slotRule() {
+        long mechanicA = insertStaff(shopA, "t_m2_" + suffix);
+        LocalDateTime at = TODAY.plusDays(2).atTime(10, 0);
+        ReservationCreateResponse first = service.create(shopA, staffA,
+            new ReservationCreateRequest(vehicleA1, at, staffA, null));
+
+        assertThatThrownBy(() -> service.create(shopA, staffA, new ReservationCreateRequest(vehicleA2, at, staffA, null)))
+            .isInstanceOfSatisfying(BusinessException.class, e -> {
+                assertThat(e.code()).isEqualTo(ErrorCode.MECHANIC_SLOT_CONFLICT);
+                assertThat(e.details()).isEqualTo(Map.of("reservationId", first.reservationId()));
+            });
+
+        assertThat(service.create(shopA, staffA, new ReservationCreateRequest(vehicleA2, at, mechanicA, null))
+            .reservationId()).isPositive(); // 같은 시각, 다른 담당
+        long third = insertVehicle(shopA, insertCustomer(shopA, "이영희", "010-0000-0003"), "12가0003");
+        assertThat(service.create(shopA, staffA, new ReservationCreateRequest(third, at.plusMinutes(30), staffA, null))
+            .reservationId()).isPositive(); // 같은 담당, 시작 시각만 비교
+    }
+
+    @Test
+    @DisplayName("R17 같은 담당·같은 시각이어도 기존 예약이 취소·완료·노쇼면 성공, 진행중이면 409")
+    void slotIgnoresFinishedReservations() {
+        LocalDateTime at = TODAY.plusDays(2).atTime(11, 0);
+        long customerC = insertCustomer(shopA, "정민호", "010-0000-0004");
+        String[] plates = {"34나0001", "34나0002", "34나0003"};
+        String[] statuses = {"CANCELED", "COMPLETED", "NO_SHOW"};
+        for (int i = 0; i < statuses.length; i++) {
+            insertReservation(shopA, insertVehicle(shopA, customerC, plates[i]), at, statuses[i], staffA);
+        }
+        assertThat(service.create(shopA, staffA, new ReservationCreateRequest(vehicleA1, at, staffA, null))
+            .reservationId()).isPositive();
+
+        long inProgress = insertReservation(shopA, vehicleA2, at.plusHours(1), "IN_PROGRESS", staffA);
+        assertThatThrownBy(() -> service.create(shopA, staffA, new ReservationCreateRequest(
+            insertVehicle(shopA, customerC, "56다0001"), at.plusHours(1), staffA, null)))
+            .isInstanceOfSatisfying(BusinessException.class, e -> {
+                assertThat(e.code()).isEqualTo(ErrorCode.MECHANIC_SLOT_CONFLICT);
+                assertThat(e.details()).isEqualTo(Map.of("reservationId", inProgress));
+            });
+    }
+
+    @Test
+    @DisplayName("R20·X13 다른 정비소 정비사를 담당으로 등록 → 400 INVALID_INPUT(assigneeId), 저장 없음. 다른 정비소 예약은 겹침에 섞이지 않는다")
+    void assigneeIsolation() {
+        long staffB = insertStaff(shopB, "t_b4_" + suffix);
+        LocalDateTime at = TODAY.plusDays(2).atTime(12, 0);
+
+        assertThatThrownBy(() -> service.create(shopA, staffA, new ReservationCreateRequest(vehicleA1, at, staffB, null)))
+            .isInstanceOfSatisfying(BusinessException.class, e -> {
+                assertThat(e.code()).isEqualTo(ErrorCode.INVALID_INPUT);
+                assertThat(e.fieldErrors()).extracting("field").containsExactly("assigneeId");
+            });
+        assertThat(reservationCount(shopA)).isZero();
+
+        // B 정비소의 같은 시각 예약은 A의 담당 겹침으로 세지 않는다 (shopId 조건)
+        insertReservation(shopB, vehicleB, at, "RESERVED", staffB);
+        assertThat(service.create(shopA, staffA, new ReservationCreateRequest(vehicleA1, at, staffA, null))
+            .reservationId()).isPositive();
+    }
+
+    @Test
+    @DisplayName("R18 변경(19)으로 같은 담당·같은 시각이 되게 바꾸면 409 + 겹친 예약 번호, 예약·version 그대로 / 자기 자신은 뺀다")
+    void changeIntoOccupiedSlot() {
+        LocalDateTime busy = TODAY.plusDays(5).atTime(9, 0);
+        long other = createReservation(vehicleA2, busy, List.of());
+        long mine = createReservation(vehicleA1, TODAY.plusDays(6).atTime(9, 0), List.of());
+        em.flush();
+        em.clear();
+
+        assertThatThrownBy(() -> service.update(shopA, mine, update(0, busy, null, null, null)))
+            .isInstanceOfSatisfying(BusinessException.class, e -> {
+                assertThat(e.code()).isEqualTo(ErrorCode.MECHANIC_SLOT_CONFLICT);
+                assertThat(e.details()).isEqualTo(Map.of("reservationId", other));
+            });
+        em.clear();
+        assertThat(dbVersion(mine)).isZero();
+
+        ReservationResponse same = service.update(shopA, mine, update(0, TODAY.plusDays(6).atTime(9, 0), null, null, null));
+        assertThat(same.version()).isEqualTo(1); // 자기 자신과는 충돌이 아니다
+    }
+
     private long createReservation(long vehicleId, LocalDateTime at, List<Long> itemIds) {
-        return service.create(shopA, staffA, new ReservationCreateRequest(vehicleId, at,
+        return service.create(shopA, staffA, new ReservationCreateRequest(vehicleId, at, staffA,
             new ReservationCreateRequest.Purpose(itemIds, false, null))).reservationId();
     }
 
@@ -454,7 +554,7 @@ class ReservationServiceDbTest {
      * 시간대(CI는 UTC)로 해석되어 앱이 읽는 값과 어긋난다. 상태만 바꾸는 UPDATE는 시각과 무관해 JdbcTemplate을 쓴다.
      */
     private long insertReservation(long shopId, long vehicleId, LocalDateTime at, String status, long staffId) {
-        Reservation saved = reservations.saveAndFlush(Reservation.register(shopId, vehicleId, at, false, null, staffId));
+        Reservation saved = reservations.saveAndFlush(Reservation.register(shopId, vehicleId, at, false, null, staffId, staffId));
         if (!"RESERVED".equals(status)) {
             jdbc.update("UPDATE reservation SET status = ? WHERE id = ?", status, saved.getId());
             em.clear();

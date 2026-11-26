@@ -23,7 +23,7 @@ class ReservationTest {
 
     /** DB에서 읽어 온 것처럼 version·상태를 맞춘 예약 (저장 전에는 version이 null). */
     private static Reservation loaded(ReservationStatus status, int version) {
-        Reservation r = Reservation.register(1L, 10L, AT, false, null, 7L);
+        Reservation r = Reservation.register(1L, 10L, AT, false, null, 7L, 7L);
         ReflectionTestUtils.setField(r, "status", status);
         ReflectionTestUtils.setField(r, "version", version);
         return r;
@@ -37,7 +37,7 @@ class ReservationTest {
     @Test
     @DisplayName("새 예약: 상태 RESERVED, 담당·등록자는 등록한 계정 (D-51)")
     void register() {
-        Reservation r = Reservation.register(1L, 10L, AT, true, "메모", 7L);
+        Reservation r = Reservation.register(1L, 10L, AT, true, "메모", 7L, 7L);
 
         assertThat(r.getStatus()).isEqualTo(ReservationStatus.RESERVED);
         assertThat(r.getShopId()).isEqualTo(1L);
@@ -125,7 +125,7 @@ class ReservationTest {
     @Test
     @DisplayName("change: 값이 있는 것만 바꾼다(null은 그대로), 메모는 빈 문자열이면 비운다, 고객·차량·담당은 그대로")
     void changeOnlyGivenFields() {
-        Reservation r = Reservation.register(1L, 10L, AT, false, "메모", 7L);
+        Reservation r = Reservation.register(1L, 10L, AT, false, "메모", 7L, 7L);
         ReflectionTestUtils.setField(r, "version", 0);
 
         r.change(NOW, null, null, null);
@@ -146,7 +146,7 @@ class ReservationTest {
     @Test
     @DisplayName("change는 수정 시각을 항상 앞으로 민다 — 목적만 바뀌어도 행이 바뀐 것이 되어 @Version이 오르게 한다(R11). 같은 초면 1초 앞으로")
     void changeAlwaysAdvancesUpdatedAt() {
-        Reservation r = Reservation.register(1L, 10L, AT, false, null, 7L);
+        Reservation r = Reservation.register(1L, 10L, AT, false, null, 7L, 7L);
         ReflectionTestUtils.setField(r, "version", 0);
         ReflectionTestUtils.setField(r, "updatedAt", NOW.minusDays(1));
 

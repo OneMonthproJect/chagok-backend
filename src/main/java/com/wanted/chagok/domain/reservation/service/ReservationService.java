@@ -1,5 +1,7 @@
 package com.wanted.chagok.domain.reservation.service;
 
+import com.wanted.chagok.domain.account.api.AssigneeRef;
+import com.wanted.chagok.domain.account.api.StaffReader;
 import com.wanted.chagok.domain.customer.api.CustomerReader;
 import com.wanted.chagok.domain.customer.api.VehicleSummary;
 import com.wanted.chagok.domain.item.api.ItemReader;
@@ -53,17 +55,20 @@ public class ReservationService implements ReservationReader {
     private final ReservationItemRepository reservationItemRepository;
     private final CustomerReader customerReader;
     private final ItemReader itemReader;
+    private final StaffReader staffReader;
     private final Clock clock;
 
     public ReservationService(ReservationRepository reservationRepository,
                               ReservationItemRepository reservationItemRepository,
                               CustomerReader customerReader,
                               ItemReader itemReader,
+                              StaffReader staffReader,
                               Clock clock) {
         this.reservationRepository = reservationRepository;
         this.reservationItemRepository = reservationItemRepository;
         this.customerReader = customerReader;
         this.itemReader = itemReader;
+        this.staffReader = staffReader;
         this.clock = clock;
     }
 
@@ -172,12 +177,12 @@ public class ReservationService implements ReservationReader {
     }
 
     /**
-     * API 16 예약 등록 (04 F-RSV-01, R1~R4·X4·X8·X11). 08 16번의 순서: 차량 소유(404) → 입력 검증(30분 단위·항목, 400) →
-     * 날짜 ≥ 오늘(400) → 같은 차량 유효 예약 1건(409) → 저장. 예약 행과 예약 목적 행은 한 트랜잭션이다.
-     * P0-핵심은 요청에 담당이 없고 등록한 계정이 담당이다(D-51).
+     * API 16 예약 등록 (04 F-RSV-01, R1~R4·R15~R20·X4·X8·X11·X13). 08 16번의 순서: 차량 소유(404) → 입력 검증(30분 단위·항목·
+     * 담당, 400) → 날짜 ≥ 오늘(400) → 같은 차량 유효 예약 1건(409) → 담당 중복(409) → 저장. 예약 행과 예약 목적 행은 한
+     * 트랜잭션이다. 담당은 요청의 {@code assigneeId}이고 등록자는 토큰의 계정이다(D-51).
      *
-     * <p>LIMIT: 같은 차량 유효 예약 확인과 저장 사이에 다른 요청이 끼어들면 둘 다 저장된다(동시 요청 잠금은 P2,
-     * changelog D-22). 같은 차량에 거의 동시에 등록하는 일이 실제로 문제가 될 때 차량 단위 잠금을 더한다.
+     * <p>LIMIT: 같은 차량 유효 예약·같은 담당 시각 중복 확인과 저장 사이에 다른 요청이 끼어들면 둘 다 저장된다(동시 요청 잠금은 P2,
+     * changelog D-22, DB 제약 없음). 같은 차량·같은 담당에 거의 동시에 등록하는 일이 실제로 문제가 될 때 단위별 잠금을 더한다.
      */
     @Transactional
     public ReservationCreateResponse create(long shopId, long staffId, ReservationCreateRequest request) {
@@ -188,18 +193,20 @@ public class ReservationService implements ReservationReader {
         requireHalfHour(reservedAt);
         List<Long> itemIds = purposeItemIds(request.purpose());
         requireValidItems(shopId, itemIds);
+        long assigneeId = requireAssignee(shopId, request.assigneeId());
         requireNotPastDate(reservedAt);
         ReservationRef active = findActiveByVehicleIds(shopId, List.of(vehicleId)).get(vehicleId);
         if (active != null) {
             throw new BusinessException(ErrorCode.RESERVATION_ACTIVE_EXISTS,
                 Map.of("reservationId", active.reservationId()));
         }
+        requireSlotFree(shopId, assigneeId, reservedAt, null);
 
         ReservationCreateRequest.Purpose purpose = request.purpose();
         boolean other = purpose != null && Boolean.TRUE.equals(purpose.other());
         String memo = purpose == null ? null : purpose.memo();
         Reservation saved = reservationRepository.save(
-            Reservation.register(shopId, vehicleId, reservedAt, other, memo, staffId));
+            Reservation.register(shopId, vehicleId, reservedAt, other, memo, assigneeId, staffId));
         if (!itemIds.isEmpty()) {
             reservationItemRepository.saveAll(
                 itemIds.stream().map(itemId -> ReservationItem.of(shopId, saved.getId(), itemId)).toList());
@@ -283,6 +290,8 @@ public class ReservationService implements ReservationReader {
                     throw new BusinessException(ErrorCode.RESERVATION_ACTIVE_EXISTS,
                         Map.of("reservationId", existing.getId()));
                 });
+            // 근거: 08 19번 (R18) — 일시를 바꿔 같은 담당·같은 시각이 되면 막는다(자기 자신 제외). 담당 변경(재배정)은 별도 이슈(#37)
+            requireSlotFree(shopId, reservation.getAssigneeStaffId(), reservedAt, reservation.getId());
         }
 
         reservation.change(LocalDateTime.now(clock), reservedAt, purpose == null ? null : purpose.other(), purpose == null ? null : purpose.memo());
@@ -325,6 +334,39 @@ public class ReservationService implements ReservationReader {
         if (reservedAt.toLocalDate().isBefore(LocalDate.now(clock))) {
             throw new BusinessException(ErrorCode.RESERVATION_PAST_DATE);
         }
+    }
+
+    /** 담당 중복 확인의 "유효 예약": 예약·진행중 (08 16번). 취소·완료·노쇼는 시각을 비우지 않는 것으로 본다 (R17). */
+    private static final List<ReservationStatus> SLOT_STATUSES =
+        List.of(ReservationStatus.RESERVED, ReservationStatus.IN_PROGRESS);
+
+    /**
+     * 08 16번 X13·R20: 담당은 그 정비소의 사장·정비사여야 한다. 없는 id·다른 정비소 직원은 같은 400이라 남의 것인지 드러나지 않는다.
+     * 후보는 {@code account.api}가 정비소 조건으로만 읽는다 (비활성 제외는 P1 V3, 08 0.1).
+     */
+    private long requireAssignee(long shopId, long assigneeId) {
+        boolean valid = staffReader.findAssignees(shopId).stream().map(AssigneeRef::staffId)
+            .anyMatch(id -> id == assigneeId);
+        if (!valid) {
+            throw BusinessException.invalidField("assigneeId", "담당 정비사를 다시 선택해 주세요.");
+        }
+        return assigneeId;
+    }
+
+    /**
+     * 08 16·19번 R15·R18: 같은 담당 + 같은 시작 시각에 다른 유효 예약이 있으면 409 {@code MECHANIC_SLOT_CONFLICT}와 겹친 예약
+     * 번호. 시작 시각만 비교하고(소요 시간 없음) 같은 시각 다른 담당은 허용한다 (R16).
+     *
+     * @param exceptReservationId 변경(19)에서 자기 자신을 뺄 때의 예약 id. 등록이면 null
+     */
+    private void requireSlotFree(long shopId, long assigneeId, LocalDateTime reservedAt, Long exceptReservationId) {
+        reservationRepository.findSameSlot(shopId, assigneeId, reservedAt, SLOT_STATUSES).stream()
+            .filter(r -> !r.getId().equals(exceptReservationId))
+            .findFirst()
+            .ifPresent(existing -> {
+                throw new BusinessException(ErrorCode.MECHANIC_SLOT_CONFLICT,
+                    Map.of("reservationId", existing.getId()));
+            });
     }
 
     /** 08 16·19번 X11: 항목 중복 없음, 그 정비소의 쓰는 항목만. */

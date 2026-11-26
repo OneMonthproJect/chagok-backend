@@ -7,6 +7,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.wanted.chagok.domain.account.api.StaffReader;
 import com.wanted.chagok.domain.customer.api.CustomerReader;
 import com.wanted.chagok.domain.item.api.ItemReader;
 import com.wanted.chagok.domain.reservation.dto.ReservationResponse;
@@ -51,13 +52,16 @@ class ReservationCancelNoShowServiceTest {
     @Mock
     private ItemReader itemReader;
 
+    @Mock
+    private StaffReader staffReader;
+
     private ReservationService service() {
-        return new ReservationService(repository, itemRepository, customerReader, itemReader, clock);
+        return new ReservationService(repository, itemRepository, customerReader, itemReader, staffReader, clock);
     }
 
     private static Reservation reservation(long id, long shopId, LocalDateTime at, ReservationStatus status,
                                            int version) {
-        Reservation r = Reservation.register(shopId, 4L, at, false, null, 7L);
+        Reservation r = Reservation.register(shopId, 4L, at, false, null, 7L, 7L);
         ReflectionTestUtils.setField(r, "id", id);
         ReflectionTestUtils.setField(r, "status", status);
         ReflectionTestUtils.setField(r, "version", version);

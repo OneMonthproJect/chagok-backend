@@ -73,7 +73,7 @@ class ReservationControllerTest {
     }
 
     private static final String VALID_BODY =
-        "{\"vehicleId\":1,\"reservedAt\":\"2026-11-27T11:30:00\",\"purpose\":{\"itemIds\":[1],\"other\":false,\"memo\":null}}";
+        "{\"vehicleId\":1,\"reservedAt\":\"2026-11-27T11:30:00\",\"assigneeId\":9,\"purpose\":{\"itemIds\":[1],\"other\":false,\"memo\":null}}";
 
     // ---- API 15 ----
 
@@ -171,7 +171,7 @@ class ReservationControllerTest {
     // ---- API 16 ----
 
     @Test
-    @DisplayName("16 성공: 08 응답 모양(assignee 없음), 등록자는 토큰의 staffId·shopId, 본문의 shopId·담당은 무시 (X8·D-51)")
+    @DisplayName("16 성공: 08 응답 모양(assignee는 #89), 등록자는 토큰의 staffId·shopId, 본문의 shopId는 무시, 담당은 본문의 assigneeId (X8·D-51)")
     void createSuccess() throws Exception {
         when(service.create(any(Long.class), any(Long.class), any(ReservationCreateRequest.class)))
             .thenReturn(new ReservationCreateResponse(5L, ReservationStatus.RESERVED,
@@ -192,6 +192,7 @@ class ReservationControllerTest {
         ArgumentCaptor<ReservationCreateRequest> sent = ArgumentCaptor.forClass(ReservationCreateRequest.class);
         verify(service).create(org.mockito.ArgumentMatchers.eq(3L), org.mockito.ArgumentMatchers.eq(7L), sent.capture());
         assertThat(sent.getValue().vehicleId()).isEqualTo(1L);
+        assertThat(sent.getValue().assigneeId()).isEqualTo(2L);
         assertThat(sent.getValue().reservedAt()).isEqualTo(LocalDateTime.of(2026, 11, 27, 11, 30));
         assertThat(sent.getValue().purpose().itemIds()).containsExactly(1L);
         assertThat(sent.getValue().purpose().other()).isFalse();
@@ -200,14 +201,37 @@ class ReservationControllerTest {
     @Test
     @DisplayName("16 필수값(vehicleId·reservedAt) 누락 → 400 INVALID_INPUT + fieldErrors, service 호출 없음")
     void createMissingRequired() throws Exception {
-        create("{\"reservedAt\":\"2026-11-27T11:30:00\"}")
+        create("{\"reservedAt\":\"2026-11-27T11:30:00\",\"assigneeId\":9}")
             .andExpect(status().isBadRequest())
             .andExpect(jsonPath("$.error.code").value("INVALID_INPUT"))
             .andExpect(jsonPath("$.error.fieldErrors[0].field").value("vehicleId"));
-        create("{\"vehicleId\":1}")
+        create("{\"vehicleId\":1,\"assigneeId\":9}")
             .andExpect(status().isBadRequest())
             .andExpect(jsonPath("$.error.fieldErrors[0].field").value("reservedAt"));
         verify(service, never()).create(anyLong(), anyLong(), any());
+    }
+
+    @Test
+    @DisplayName("R19 assigneeId 없이 등록 → 400 INVALID_INPUT + fieldErrors(assigneeId), service 호출 없음")
+    void createWithoutAssignee() throws Exception {
+        create("{\"vehicleId\":1,\"reservedAt\":\"2026-11-27T11:30:00\"}")
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.error.code").value("INVALID_INPUT"))
+            .andExpect(jsonPath("$.error.fieldErrors[0].field").value("assigneeId"));
+        verify(service, never()).create(anyLong(), anyLong(), any());
+    }
+
+    @Test
+    @DisplayName("R15 service의 MECHANIC_SLOT_CONFLICT → 409 + details.reservationId (08 16번 예시 모양)")
+    void slotConflict() throws Exception {
+        when(service.create(any(Long.class), any(Long.class), any(ReservationCreateRequest.class)))
+            .thenThrow(new BusinessException(ErrorCode.MECHANIC_SLOT_CONFLICT, java.util.Map.of("reservationId", 1L)));
+
+        create(VALID_BODY)
+            .andExpect(status().isConflict())
+            .andExpect(jsonPath("$.success").value(false))
+            .andExpect(jsonPath("$.error.code").value("MECHANIC_SLOT_CONFLICT"))
+            .andExpect(jsonPath("$.error.details.reservationId").value(1));
     }
 
     @Test
@@ -217,10 +241,10 @@ class ReservationControllerTest {
             .thenReturn(new ReservationCreateResponse(5L, ReservationStatus.RESERVED,
                 LocalDateTime.of(2026, 11, 27, 11, 30), 1L, 0));
         String memo201 = "가".repeat(201);
-        create("{\"vehicleId\":1,\"reservedAt\":\"2026-11-27T11:30:00\",\"purpose\":{\"memo\":\"" + memo201 + "\"}}")
+        create("{\"vehicleId\":1,\"reservedAt\":\"2026-11-27T11:30:00\",\"assigneeId\":9,\"purpose\":{\"memo\":\"" + memo201 + "\"}}")
             .andExpect(status().isBadRequest())
             .andExpect(jsonPath("$.error.fieldErrors[0].field").value("purpose.memo"));
-        create("{\"vehicleId\":1,\"reservedAt\":\"2026-11-27T11:30:00\",\"purpose\":{\"memo\":\"" + "가".repeat(200) + "\"}}")
+        create("{\"vehicleId\":1,\"reservedAt\":\"2026-11-27T11:30:00\",\"assigneeId\":9,\"purpose\":{\"memo\":\"" + "가".repeat(200) + "\"}}")
             .andExpect(status().isOk());
         create("{\"vehicleId\":1,\"reservedAt\":\"내일 오전\"}")
             .andExpect(status().isBadRequest())

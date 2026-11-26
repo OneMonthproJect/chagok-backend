@@ -198,7 +198,7 @@ class ReservationConcurrencyDbTest {
         long vehicleId = insertAndGetId("INSERT INTO vehicle (shop_id, customer_id, plate_number, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
             shopId, customerId, "CC" + suffix + (++vehicleSeq), LocalDateTime.now(), LocalDateTime.now());
         long id = reservations.saveAndFlush(
-            Reservation.register(shopId, vehicleId, today.plusDays(8).atTime(10, 0), false, null, staffId)).getId();
+            Reservation.register(shopId, vehicleId, today.plusDays(8).atTime(10, 0), false, null, staffId, staffId)).getId();
         if (withOldItem) {
             jdbc.update("INSERT INTO reservation_item (shop_id, reservation_id, service_item_id, created_at) VALUES (?, ?, ?, ?)",
                 shopId, id, itemOld, LocalDateTime.now());

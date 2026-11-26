@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyCollection;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
@@ -12,6 +13,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
+import com.wanted.chagok.domain.account.api.StaffReader;
 import com.wanted.chagok.domain.customer.api.CustomerReader;
 import com.wanted.chagok.domain.item.api.ItemReader;
 import com.wanted.chagok.domain.reservation.dto.ReservationCreateRequest;
@@ -68,12 +70,15 @@ class ReservationUpdateServiceTest {
     @Mock
     private ItemReader itemReader;
 
+    @Mock
+    private StaffReader staffReader;
+
     private ReservationService service() {
-        return new ReservationService(repository, itemRepository, customerReader, itemReader, clock);
+        return new ReservationService(repository, itemRepository, customerReader, itemReader, staffReader, clock);
     }
 
     private static Reservation reservation(long id, LocalDateTime at, ReservationStatus status, int version) {
-        Reservation r = Reservation.register(SHOP, VEHICLE, at, false, "기존 메모", 7L);
+        Reservation r = Reservation.register(SHOP, VEHICLE, at, false, "기존 메모", 7L, 7L);
         ReflectionTestUtils.setField(r, "id", id);
         ReflectionTestUtils.setField(r, "status", status);
         ReflectionTestUtils.setField(r, "version", version);
@@ -289,6 +294,45 @@ class ReservationUpdateServiceTest {
         service().update(SHOP, RES_ID, request(0, LocalDateTime.of(2026, 11, 29, 9, 30), null, null, null));
 
         verify(repository).saveAndFlush(r);
+    }
+
+    @Test
+    @DisplayName("R18 일시를 바꿔 같은 담당 + 같은 시각의 다른 유효 예약과 겹치면 → 409 MECHANIC_SLOT_CONFLICT + 그 예약 번호, 아무것도 바뀌지 않음")
+    void movingIntoAnotherSlotOfTheSameAssignee() {
+        Reservation r = existing(); // 담당 7
+        LocalDateTime target = LocalDateTime.of(2026, 11, 29, 9, 30);
+        Reservation other = reservation(RES_ID + 1, target, ReservationStatus.RESERVED, 0);
+        when(repository.findSameSlot(eq(SHOP), eq(7L), eq(target), any())).thenReturn(List.of(other));
+
+        assertThatThrownBy(() -> service().update(SHOP, RES_ID, request(0, target, null, null, null)))
+            .isInstanceOfSatisfying(BusinessException.class, e -> {
+                assertThat(e.code()).isEqualTo(ErrorCode.MECHANIC_SLOT_CONFLICT);
+                assertThat(e.details()).isEqualTo(Map.of("reservationId", RES_ID + 1));
+            });
+        verify(repository, never()).saveAndFlush(any());
+        assertThat(r.getReservedAt()).isEqualTo(LocalDateTime.of(2026, 11, 26, 10, 0));
+    }
+
+    @Test
+    @DisplayName("담당 중복 확인에서 자기 자신은 뺀다 — 같은 시각으로 \"바꿔도\" 자기 예약과는 충돌이 아니다")
+    void selfIsNotASlotConflict() {
+        Reservation r = existing();
+        LocalDateTime sameTime = r.getReservedAt();
+        when(repository.findSameSlot(eq(SHOP), eq(7L), eq(sameTime), any())).thenReturn(List.of(r));
+
+        service().update(SHOP, RES_ID, request(0, sameTime, null, null, null));
+
+        verify(repository).saveAndFlush(r);
+    }
+
+    @Test
+    @DisplayName("메모·목적만 바꿀 때는 담당 중복 확인도 하지 않는다 (일시를 보낼 때만, 08 19번)")
+    void memoOnlyChangeSkipsSlotCheck() {
+        existing();
+
+        service().update(SHOP, RES_ID, request(0, null, null, null, "새 메모"));
+
+        verify(repository, never()).findSameSlot(anyLong(), anyLong(), any(), any());
     }
 
     private Reservation pastReserved() {

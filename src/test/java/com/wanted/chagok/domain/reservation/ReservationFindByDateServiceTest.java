@@ -8,6 +8,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
+import com.wanted.chagok.domain.account.api.StaffReader;
 import com.wanted.chagok.domain.customer.api.CustomerReader;
 import com.wanted.chagok.domain.customer.api.VehicleSummary;
 import com.wanted.chagok.domain.item.api.ItemReader;
@@ -59,13 +60,16 @@ class ReservationFindByDateServiceTest {
     @Mock
     private ItemReader itemReader;
 
+    @Mock
+    private StaffReader staffReader;
+
     private ReservationService service() {
-        return new ReservationService(repository, itemRepository, customerReader, itemReader, clock);
+        return new ReservationService(repository, itemRepository, customerReader, itemReader, staffReader, clock);
     }
 
     private static Reservation reservation(long id, long vehicleId, LocalDateTime at, ReservationStatus status,
                                            boolean other, String memo) {
-        Reservation r = Reservation.register(SHOP, vehicleId, at, other, memo, 7L);
+        Reservation r = Reservation.register(SHOP, vehicleId, at, other, memo, 7L, 7L);
         ReflectionTestUtils.setField(r, "id", id);
         ReflectionTestUtils.setField(r, "status", status);
         ReflectionTestUtils.setField(r, "version", 0);

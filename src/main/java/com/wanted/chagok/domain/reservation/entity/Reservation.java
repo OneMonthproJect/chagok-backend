@@ -78,25 +78,29 @@ public class Reservation {
     }
 
     private Reservation(long shopId, long vehicleId, LocalDateTime reservedAt, boolean purposeOther, String purposeMemo,
-                        long staffId) {
+                        long assigneeStaffId, long createdByStaffId) {
         this.shopId = shopId;
         this.vehicleId = vehicleId;
         this.reservedAt = reservedAt;
         this.status = ReservationStatus.RESERVED;
         this.purposeOther = purposeOther;
         this.purposeMemo = purposeMemo;
-        // 근거: 04 F-RSV-01, D-51 — P0-핵심은 요청에 담당이 없고 등록한 계정이 담당이다
-        this.assigneeStaffId = staffId;
-        this.createdByStaffId = staffId;
+        // 근거: 04 F-RSV-01, D-51 — P0-나머지부터 담당은 요청의 assigneeId이고, 등록자는 토큰의 계정이다
+        this.assigneeStaffId = assigneeStaffId;
+        this.createdByStaffId = createdByStaffId;
     }
 
     /**
      * 새 예약. 상태는 {@code RESERVED}, {@code version}은 저장할 때 0에서 시작한다(08 16번).
-     * 30분 단위·날짜·같은 차량 유효 예약 같은 입력 검증은 service가 먼저 한다.
+     * 30분 단위·날짜·담당이 그 정비소 직원인지·같은 차량 유효 예약·담당 중복 같은 입력 검증은 service가 먼저 한다.
+     *
+     * @param assigneeStaffId  담당 정비사 (요청의 {@code assigneeId}, 그 정비소 사장·정비사임을 service가 확인한 값)
+     * @param createdByStaffId 등록한 계정 (토큰)
      */
     public static Reservation register(long shopId, long vehicleId, LocalDateTime reservedAt, boolean purposeOther,
-                                       String purposeMemo, long staffId) {
-        return new Reservation(shopId, vehicleId, reservedAt, purposeOther, purposeMemo, staffId);
+                                       String purposeMemo, long assigneeStaffId, long createdByStaffId) {
+        return new Reservation(shopId, vehicleId, reservedAt, purposeOther, purposeMemo, assigneeStaffId,
+            createdByStaffId);
     }
 
     /**

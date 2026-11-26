@@ -6,11 +6,14 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyCollection;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
+import com.wanted.chagok.domain.account.api.AssigneeRef;
+import com.wanted.chagok.domain.account.api.StaffReader;
 import com.wanted.chagok.domain.customer.api.CustomerReader;
 import com.wanted.chagok.domain.customer.api.VehicleSummary;
 import com.wanted.chagok.domain.item.api.ItemReader;
@@ -24,6 +27,7 @@ import com.wanted.chagok.domain.reservation.entity.ReservationStatus;
 import com.wanted.chagok.domain.reservation.repository.ReservationItemRepository;
 import com.wanted.chagok.domain.reservation.repository.ReservationRepository;
 import com.wanted.chagok.domain.reservation.service.ReservationService;
+import com.wanted.chagok.global.auth.StaffRole;
 import com.wanted.chagok.global.config.ClockConfig;
 import com.wanted.chagok.global.error.BusinessException;
 import com.wanted.chagok.global.error.ErrorCode;
@@ -34,6 +38,7 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -53,6 +58,8 @@ class ReservationListCreateServiceTest {
     private static final long SHOP = 3L;
     private static final long STAFF = 7L;
     private static final long VEHICLE = 4L;
+    /** 이 정비소의 담당 후보 중 한 명 (STAFF와 다른 계정이라 "담당 = 등록자"가 아님을 드러낸다) */
+    private static final long ASSIGNEE = 9L;
 
     // 2026-11-24 15:00 (Asia/Seoul)
     private final Clock clock = Clock.fixed(Instant.parse("2026-11-24T06:00:00Z"), ClockConfig.SEOUL);
@@ -69,17 +76,27 @@ class ReservationListCreateServiceTest {
     @Mock
     private ItemReader itemReader;
 
+    @Mock
+    private StaffReader staffReader;
+
+    /** 담당 후보: 이 정비소의 사장(STAFF)과 정비사(ASSIGNEE). 등록(create)만 읽는다. */
+    @BeforeEach
+    void assigneeCandidates() {
+        lenient().when(staffReader.findAssignees(SHOP)).thenReturn(List.of(
+            new AssigneeRef(STAFF, "박사장", StaffRole.OWNER, 0), new AssigneeRef(ASSIGNEE, "김정비", StaffRole.MECHANIC, 1)));
+    }
+
     private ReservationService service() {
-        return new ReservationService(repository, itemRepository, customerReader, itemReader, clock);
+        return new ReservationService(repository, itemRepository, customerReader, itemReader, staffReader, clock);
     }
 
     private static ReservationCreateRequest request(LocalDateTime at, List<Long> itemIds, Boolean other, String memo) {
-        return new ReservationCreateRequest(VEHICLE, at, new ReservationCreateRequest.Purpose(itemIds, other, memo));
+        return new ReservationCreateRequest(VEHICLE, at, ASSIGNEE, new ReservationCreateRequest.Purpose(itemIds, other, memo));
     }
 
     private static Reservation reservation(long id, long vehicleId, LocalDateTime at, ReservationStatus status,
                                            boolean other, int version) {
-        Reservation r = Reservation.register(SHOP, vehicleId, at, other, null, STAFF);
+        Reservation r = Reservation.register(SHOP, vehicleId, at, other, null, STAFF, STAFF);
         ReflectionTestUtils.setField(r, "id", id);
         ReflectionTestUtils.setField(r, "status", status);
         ReflectionTestUtils.setField(r, "version", version);
@@ -110,8 +127,98 @@ class ReservationListCreateServiceTest {
 
     // ================= API 16 예약 등록 =================
 
+    private static final LocalDateTime SLOT = LocalDateTime.of(2026, 11, 27, 10, 0);
+
     @Test
-    @DisplayName("등록: 차량 소유 확인 → 항목 검증 → 저장. 담당·등록자는 등록한 계정(D-51), version은 0, 예약 목적 행 저장")
+    @DisplayName("R15 같은 담당 + 같은 시작 시각의 유효 예약이 있으면 409 MECHANIC_SLOT_CONFLICT + 겹친 예약 번호, 저장 없음")
+    void slotConflict() {
+        Reservation overlapping = reservation(7, 5L, SLOT, ReservationStatus.RESERVED, false, 0);
+        when(repository.findSameSlot(eq(SHOP), eq(ASSIGNEE), eq(SLOT), any())).thenReturn(List.of(overlapping));
+
+        assertThatThrownBy(() -> service().create(SHOP, STAFF, request(SLOT, List.of(), false, null)))
+            .isInstanceOfSatisfying(BusinessException.class, e -> {
+                assertThat(e.code()).isEqualTo(ErrorCode.MECHANIC_SLOT_CONFLICT);
+                assertThat(e.details()).isEqualTo(Map.of("reservationId", 7L));
+            });
+        verify(repository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("R16 같은 시각이라도 다른 담당의 예약이면 성공 — 겹침은 요청한 담당(ASSIGNEE)으로만 조회한다")
+    void sameTimeOtherAssigneeIsAllowed() {
+        saveAssignsIdAndVersion();
+
+        service().create(SHOP, STAFF, request(SLOT, List.of(), false, null));
+
+        verify(repository).findSameSlot(eq(SHOP), eq(ASSIGNEE), eq(SLOT), any());
+        verify(repository, never()).findSameSlot(eq(SHOP), eq(STAFF), any(), any());
+        verify(repository).save(any(Reservation.class));
+    }
+
+    @Test
+    @DisplayName("R17 겹침 판정의 유효 예약은 예약·진행중뿐 — 취소·완료·노쇼는 조회 조건에서 빠진다")
+    void slotConflictOnlyForActiveStatuses() {
+        saveAssignsIdAndVersion();
+
+        service().create(SHOP, STAFF, request(SLOT, List.of(), false, null));
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<java.util.Collection<ReservationStatus>> statuses = ArgumentCaptor.forClass(java.util.Collection.class);
+        verify(repository).findSameSlot(eq(SHOP), eq(ASSIGNEE), eq(SLOT), statuses.capture());
+        assertThat(statuses.getValue()).containsExactlyInAnyOrder(ReservationStatus.RESERVED, ReservationStatus.IN_PROGRESS);
+    }
+
+    @Test
+    @DisplayName("시작 시각만 비교한다 — 10:00 예약이 있어도 10:30 등록은 그 시각으로만 조회해 막히지 않는다")
+    void onlyTheStartTimeIsCompared() {
+        saveAssignsIdAndVersion();
+        LocalDateTime next = SLOT.plusMinutes(30);
+
+        service().create(SHOP, STAFF, request(next, List.of(), false, null));
+
+        verify(repository).findSameSlot(eq(SHOP), eq(ASSIGNEE), eq(next), any());
+        verify(repository).save(any(Reservation.class));
+    }
+
+    @Test
+    @DisplayName("R20·X13 이 정비소 직원이 아닌 assigneeId(남의 정비소·없는 id) → 400 INVALID_INPUT(assigneeId), 저장·겹침 조회 없음")
+    void assigneeNotInShop() {
+        assertThatThrownBy(() -> service().create(SHOP, STAFF, new ReservationCreateRequest(VEHICLE, SLOT, 999L, null)))
+            .isInstanceOfSatisfying(BusinessException.class, e -> {
+                assertThat(e.code()).isEqualTo(ErrorCode.INVALID_INPUT);
+                assertThat(e.fieldErrors()).extracting("field").containsExactly("assigneeId");
+            });
+        verify(repository, never()).save(any());
+        verify(repository, never()).findSameSlot(anyLong(), anyLong(), any(), any());
+        verify(staffReader).findAssignees(SHOP); // 후보는 토큰의 정비소로만 읽는다
+    }
+
+    @Test
+    @DisplayName("08 16번 순서: 30분 단위(400)가 담당 확인보다 먼저, 담당(400)이 날짜(400)보다 먼저")
+    void validationOrder() {
+        assertInvalidInput(() -> service().create(SHOP, STAFF,
+            new ReservationCreateRequest(VEHICLE, LocalDateTime.of(2026, 11, 27, 10, 15), 999L, null)), "reservedAt");
+        verify(staffReader, never()).findAssignees(anyLong());
+
+        assertInvalidInput(() -> service().create(SHOP, STAFF,
+            new ReservationCreateRequest(VEHICLE, LocalDateTime.of(2026, 11, 20, 10, 0), 999L, null)), "assigneeId");
+    }
+
+    @Test
+    @DisplayName("같은 차량 유효 예약(409 RESERVATION_ACTIVE_EXISTS)이 담당 중복 확인보다 먼저 — 이때 겹침 조회는 하지 않는다")
+    void activeReservationBeforeSlot() {
+        Reservation existing = reservation(3, VEHICLE, LocalDateTime.of(2026, 11, 26, 10, 0),
+            ReservationStatus.RESERVED, false, 0);
+        when(repository.findByVehiclesAndStatusFrom(anyLong(), anyCollection(), any(), any()))
+            .thenReturn(List.of(existing));
+
+        assertCode(() -> service().create(SHOP, STAFF, request(SLOT, List.of(), false, null)),
+            ErrorCode.RESERVATION_ACTIVE_EXISTS);
+        verify(repository, never()).findSameSlot(anyLong(), anyLong(), any(), any());
+    }
+
+    @Test
+    @DisplayName("등록: 차량 소유 확인 → 항목 검증 → 저장. 담당은 요청의 assigneeId·등록자는 토큰의 계정(D-51), version은 0, 예약 목적 행 저장")
     void create() {
         saveAssignsIdAndVersion();
         when(repository.findByVehiclesAndStatusFrom(eq(SHOP), eq(List.of(VEHICLE)), eq(ReservationStatus.RESERVED), any()))
@@ -129,7 +236,7 @@ class ReservationListCreateServiceTest {
         ArgumentCaptor<Reservation> saved = ArgumentCaptor.forClass(Reservation.class);
         verify(repository).save(saved.capture());
         assertThat(saved.getValue().getShopId()).isEqualTo(SHOP);
-        assertThat(saved.getValue().getAssigneeStaffId()).isEqualTo(STAFF);
+        assertThat(saved.getValue().getAssigneeStaffId()).isEqualTo(ASSIGNEE); // 담당은 요청의 assigneeId (D-51)
         assertThat(saved.getValue().getCreatedByStaffId()).isEqualTo(STAFF);
         assertThat(saved.getValue().isPurposeOther()).isTrue();
         assertThat(saved.getValue().getPurposeMemo()).isEqualTo("엔진 소리");
@@ -150,7 +257,7 @@ class ReservationListCreateServiceTest {
         saveAssignsIdAndVersion();
         when(repository.findByVehiclesAndStatusFrom(anyLong(), anyCollection(), any(), any())).thenReturn(List.of());
 
-        service().create(SHOP, STAFF, new ReservationCreateRequest(VEHICLE, LocalDateTime.of(2026, 11, 27, 11, 0), null));
+        service().create(SHOP, STAFF, new ReservationCreateRequest(VEHICLE, LocalDateTime.of(2026, 11, 27, 11, 0), ASSIGNEE, null));
 
         ArgumentCaptor<Reservation> saved = ArgumentCaptor.forClass(Reservation.class);
         verify(repository).save(saved.capture());

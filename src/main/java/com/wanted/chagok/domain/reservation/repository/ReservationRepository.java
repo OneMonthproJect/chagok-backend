@@ -89,4 +89,21 @@ public interface ReservationRepository extends JpaRepository<Reservation, Long> 
 
         String getStatus();
     }
+
+    /**
+     * 담당 중복 확인(08 16·19번, R15): 같은 정비소·같은 담당·같은 시작 시각이고 상태가 {@code statuses}인 예약.
+     * 소요 시간이 없어 시작 시각만 비교한다(10:00 예약이 10:30 예약을 막지 않는다). 정비소 조건은 필수다.
+     */
+    @Query("""
+        select r from Reservation r
+        where r.shopId = :shopId
+          and r.assigneeStaffId = :assigneeId
+          and r.reservedAt = :reservedAt
+          and r.status in :statuses
+        order by r.id asc
+        """)
+    List<Reservation> findSameSlot(@Param("shopId") Long shopId,
+                                   @Param("assigneeId") Long assigneeId,
+                                   @Param("reservedAt") LocalDateTime reservedAt,
+                                   @Param("statuses") Collection<ReservationStatus> statuses);
 }

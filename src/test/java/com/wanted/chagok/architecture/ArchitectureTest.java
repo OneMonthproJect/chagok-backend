@@ -45,7 +45,7 @@ class ArchitectureTest {
         "customer", new String[] {},
         "item", new String[] {},
         "maintenance", new String[] {"customer", "item", "account"},
-        "reservation", new String[] {"customer", "item"},
+        "reservation", new String[] {"customer", "item", "account"},
         "cycle", new String[] {}
     );
 

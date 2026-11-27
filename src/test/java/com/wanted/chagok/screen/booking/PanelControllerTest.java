@@ -70,7 +70,9 @@ class PanelControllerTest {
             new PanelResponse.VehicleBlock(10L, "55차0010", "쏘나타", 2018, 97000),
             List.of(new VisitRef("5eed-15", LocalDate.of(2026, 10, 24), null, "김정비", List.of(
                 new VisitRef.VisitRecord(16L, 1L, "엔진오일", "REPLACE", LocalDate.of(2026, 10, 24), null,
-                    "SHOP", null, 0, false, new VisitRef.RecordStaff(2L, "김정비"), null)))),
+                    "SHOP", null, 0, false, new VisitRef.RecordStaff(2L, "김정비"), null),
+                new VisitRef.VisitRecord(17L, 5L, "타이어", "INSPECT", LocalDate.of(2026, 10, 24), "앞 타이어 마모",
+                    "SHOP", "CAUTION", 2, true, new VisitRef.RecordStaff(2L, "김정비"), 52000)))),
             3L,
             List.of(new PanelResponse.ItemStatusBlock(6L, "BATTERY", "배터리", ItemStatus.SOON, null,
                 new BaseRecord(LocalDate.of(2023, 12, 14), null, "REPLACE"), LocalDate.of(2026, 12, 14), null,
@@ -101,6 +103,9 @@ class PanelControllerTest {
             .andExpect(jsonPath("$.data.recentVisits[0].records[0].itemName").value("엔진오일"))
             .andExpect(jsonPath("$.data.recentVisits[0].records[0].source").value("SHOP"))
             .andExpect(jsonPath("$.data.recentVisits[0].records[0].inspectResult").isEmpty())
+            // 08 17: recentVisits[].records[]는 11과 같은 모양 — 기록별 mileage는 키가 항상 있고 값이 없으면 null (#126)
+            .andExpect(jsonPath("$.data.recentVisits[0].records[0].mileage").isEmpty())
+            .andExpect(jsonPath("$.data.recentVisits[0].records[1].mileage").value(52000))
             .andExpect(jsonPath("$.data.totalVisitCount").value(3))
             .andExpect(jsonPath("$.data.itemStatuses[0].status").value("SOON"))
             .andExpect(jsonPath("$.data.itemStatuses[0].baseRecord.date").value("2023-12-14"))

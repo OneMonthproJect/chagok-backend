@@ -1,5 +1,7 @@
 package com.wanted.chagok.domain.maintenance.entity;
 
+import com.wanted.chagok.global.error.BusinessException;
+import com.wanted.chagok.global.error.ErrorCode;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EntityListeners;
@@ -38,7 +40,7 @@ public class MaintenanceRecord {
     @Column(name = "vehicle_id", nullable = false, updatable = false)
     private long vehicleId;
 
-    @Column(name = "service_item_id", nullable = false, updatable = false)
+    @Column(name = "service_item_id", nullable = false)
     private long serviceItemId;
 
     /** CHAR(36) UUID */
@@ -112,6 +114,34 @@ public class MaintenanceRecord {
                                            String memo, String inspectResult) {
         return new MaintenanceRecord(shopId, vehicleId, serviceItemId, visitKey, recordDate, mileage, recordType,
             staffId, memo, inspectResult);
+    }
+
+    /**
+     * 정비 기록 수정 (API 37, D-55). 호출하는 쪽이 보낸 값과 지금 값을 합쳐 넘긴다. 구분과 출처의 짝은 서버가 맞춘다.
+     * 차량·방문 묶음·저장일은 바꾸지 않는다. {@code version}은 JPA가 저장할 때 올린다.
+     */
+    public void edit(LocalDate recordDate, Integer mileage, RecordType recordType, long serviceItemId,
+                     String inspectResult, String memo, long staffId) {
+        this.recordDate = recordDate;
+        this.mileage = mileage;
+        this.recordType = recordType;
+        this.source = recordType.isExternal() ? "CUSTOMER_STATEMENT" : "SHOP";
+        this.serviceItemId = serviceItemId;
+        this.inspectResult = inspectResult;
+        this.memo = memo;
+        this.staffId = staffId;
+    }
+
+    /** 요청의 {@code version}이 지금 값과 같아야 한다. 다르면 409 {@code CONCURRENT_MODIFICATION} (H4). */
+    public void requireVersion(int expectedVersion) {
+        if (version == null || version != expectedVersion) {
+            throw new BusinessException(ErrorCode.CONCURRENT_MODIFICATION);
+        }
+    }
+
+    /** 정비사 수정 기간을 세는 기준일: 수정 전 방문일, 외부 기록은 저장일(방문일이 고객이 말한 과거일이라서). */
+    public LocalDate editPeriodBaseDate() {
+        return recordType.isExternal() ? createdAt.toLocalDate() : recordDate;
     }
 
     public Long getId() {

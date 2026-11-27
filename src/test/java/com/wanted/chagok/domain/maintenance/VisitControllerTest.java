@@ -58,7 +58,8 @@ class VisitControllerTest {
     @DisplayName("11: 토큰의 shopId·경로의 vehicleId로 조회하고 08 모양으로 응답")
     void list_usesTokenShopAndReturnsSpecShape() throws Exception {
         VisitRef visit = new VisitRef("5eed0000-0000-4000-8000-000000000015", LocalDate.parse("2026-10-24"), null, "김정비",
-            List.of(new VisitRef.VisitRecord(16, 1, "엔진오일", "REPLACE", LocalDate.parse("2026-10-24"), null)));
+            List.of(new VisitRef.VisitRecord(16, 1, "엔진오일", "REPLACE", LocalDate.parse("2026-10-24"), null,
+                0, false, new VisitRef.RecordStaff(2, "김정비"))));
         when(maintenanceService.listVisits(eq(1L), eq(4L), any(PageLimit.class)))
             .thenReturn(new VisitListResponse(List.of(visit), 0, 20, 3, 1));
 

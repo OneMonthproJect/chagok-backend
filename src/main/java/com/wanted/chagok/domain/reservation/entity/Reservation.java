@@ -224,12 +224,16 @@ public class Reservation {
      */
     public void correctStatus(ReservationStatus target) {
         boolean fromCancelOrNoShow = status == ReservationStatus.CANCELED || status == ReservationStatus.NO_SHOW;
-        boolean allowed = fromCancelOrNoShow && target != status
-            && (target == ReservationStatus.CANCELED || target == ReservationStatus.NO_SHOW || target == ReservationStatus.COMPLETED);
+        boolean allowed = fromCancelOrNoShow && target != status && isCorrectTarget(target);
         if (!allowed) {
             throw new BusinessException(ErrorCode.INVALID_STATUS_TRANSITION);
         }
         this.status = target;
+    }
+
+    /** 정정(API 40)의 대상이 될 수 있는 상태 (08 40번): 완료·취소·노쇼. 예약·진행중으로 정정하는 것은 허용표에 없다. service의 형식 검사와 {@link #correctStatus}가 같이 쓴다. */
+    public static boolean isCorrectTarget(ReservationStatus target) {
+        return target == ReservationStatus.CANCELED || target == ReservationStatus.NO_SHOW || target == ReservationStatus.COMPLETED;
     }
 
     /** 예약 메모 정정 (08 40번): 빈 문자열이면 비운다(19와 같음). 권한·기간·같은 값 제외는 service가 먼저 판정한 전제다. */

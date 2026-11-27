@@ -22,8 +22,8 @@ import org.springframework.transaction.annotation.Transactional;
  * <p>앱은 {@code Clock}·{@code jdbc.time_zone}·JDBC URL의 {@code serverTimezone}을 모두 {@code Asia/Seoul}로 가정한다. 그런데 JVM 기본 시간대가
  * 환경에 맡겨져 있으면 UTC 서버(CI, Docker 등)에서 SQL로 넣은 시각이 정확히 9시간 어긋나 읽혔다
  * (시드에 10:00으로 넣은 예약이 {@code 01:00}으로). 한국 시간 PC에서는 드러나지 않으므로, 이 테스트는 JVM을 UTC로 띄운
- * 환경({@code JAVA_TOOL_OPTIONS=-Duser.timezone=UTC})에서 의미가 있다. 한국 시간 환경에서는 수정 없이도 통과한다.
- * 앱 시간대를 고정하는 코드가 없으면 UTC JVM에서 실패한다.
+ * 환경에서 의미가 있다. 그래서 {@code build.gradle}의 {@code tzTest}가 이 클래스만 {@code -Duser.timezone=UTC} JVM으로 따로 돌린다
+ * ({@code dbTest}는 이 클래스를 뺀다). 앱 시간대를 고정하는 코드가 없으면 그 JVM에서 실패한다.
  *
  * <p>MySQL이 필요하다({@code ./gradlew dbTest}, CI db-test). 정비소·차량 등은 이 테스트가 직접 넣고 롤백한다.
  */

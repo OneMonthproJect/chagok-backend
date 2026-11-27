@@ -12,6 +12,7 @@ import com.wanted.chagok.global.auth.TestJwts;
 import com.wanted.chagok.global.config.ClockConfig;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
+import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -25,6 +26,9 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.context.TestConfiguration;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Primary;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -44,7 +48,18 @@ import org.springframework.transaction.annotation.Transactional;
 @Transactional
 class ReservationCorrectionDbTest {
 
-    private static final LocalDate TODAY = LocalDate.now(ClockConfig.SEOUL);
+    /** 업무 날짜의 기준: 고정 Clock이라 자정을 지나도 3일째·4일째 경계가 바뀌지 않는다. JWT 만료는 실제 시계를 그대로 쓴다. */
+    private static final Clock BUSINESS_CLOCK = Clock.fixed(Instant.parse("2026-11-25T03:00:00Z"), ClockConfig.SEOUL);
+    private static final LocalDate TODAY = LocalDate.now(BUSINESS_CLOCK);
+
+    @TestConfiguration
+    static class FixedClockConfig {
+        @Bean
+        @Primary
+        Clock businessClock() {
+            return BUSINESS_CLOCK;
+        }
+    }
 
     @Autowired
     private ReservationRepository reservations;

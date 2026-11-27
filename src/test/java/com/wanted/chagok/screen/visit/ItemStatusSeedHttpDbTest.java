@@ -13,6 +13,7 @@ import java.sql.Connection;
 import java.time.LocalDate;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import javax.sql.DataSource;
 import org.junit.jupiter.api.BeforeEach;
@@ -96,6 +97,39 @@ class ItemStatusSeedHttpDbTest {
 
     private static List<String> allStatuses(String body) {
         return JsonPath.read(body, "$.data.items[*].status");
+    }
+
+    private static Map<String, Object> itemOf(String body, String code) {
+        List<Map<String, Object>> found = JsonPath.read(body, "$.data.items[?(@.code=='" + code + "')]");
+        assertThat(found).as("항목 " + code).hasSize(1);
+        return found.get(0);
+    }
+
+    @Test
+    @DisplayName("08 10·07 7.2 꼬리표: 11바0006 엔진오일은 lastDecline(D-1M, 메모 없음), 33아0008 타이어는 lastCaution(D-2M, 메모)이 붙고 상태는 그대로다")
+    void seedNotesMatchSpec() throws Exception {
+        LocalDate today = LocalDate.now(ClockConfig.SEOUL);
+
+        Map<String, Object> oil = itemOf(itemStatusBody(ownerA, vehicleA("11바0006"), null), "ENGINE_OIL");
+        assertThat(oil.get("status")).isEqualTo("DUE"); // 거절은 상태를 바꾸지 않는다
+        @SuppressWarnings("unchecked")
+        Map<String, Object> decline = (Map<String, Object>) oil.get("lastDecline");
+        assertThat(decline.get("date")).isEqualTo(today.minusMonths(1).toString());
+        assertThat(decline.get("memo")).isNull();
+        assertThat(oil.get("lastCaution")).isNull();
+
+        Map<String, Object> tire = itemOf(itemStatusBody(ownerA, vehicleA("33아0008"), null), "TIRE");
+        assertThat(tire.get("status")).isEqualTo("SOON"); // 점검·주의는 상태를 바꾸지 않는다
+        @SuppressWarnings("unchecked")
+        Map<String, Object> caution = (Map<String, Object>) tire.get("lastCaution");
+        assertThat(caution.get("date")).isEqualTo(today.minusMonths(2).toString());
+        assertThat(caution.get("memo")).isEqualTo("타이어 트레드 마모 진행, 다음 방문 때 교체 권장");
+        assertThat(tire.get("lastDecline")).isNull();
+
+        // 그 밖의 항목(기록 없음·교체뿐)은 둘 다 null
+        Map<String, Object> other = itemOf(itemStatusBody(ownerA, vehicleA("11바0006"), null), "BATTERY");
+        assertThat(other.get("lastDecline")).isNull();
+        assertThat(other.get("lastCaution")).isNull();
     }
 
     @Test

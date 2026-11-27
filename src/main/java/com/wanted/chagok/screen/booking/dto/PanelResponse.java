@@ -1,6 +1,7 @@
 package com.wanted.chagok.screen.booking.dto;
 
 import com.wanted.chagok.domain.cycle.api.BaseRecord;
+import com.wanted.chagok.domain.cycle.api.CycleNote;
 import com.wanted.chagok.domain.cycle.api.DueReason;
 import com.wanted.chagok.domain.cycle.api.ItemStatus;
 import com.wanted.chagok.domain.maintenance.api.VisitRef;
@@ -14,7 +15,8 @@ import java.util.List;
  *
  * <p>{@code reservation.assignee}는 P0-나머지부터 있다(08 17번 표). {@code recentVisits}는 11번의 방문 모양 그대로다.
  * {@code itemStatuses}는 10번을 주행거리 없이 부른 결과와 같은 값에 {@code highlighted}를 더한 것이고,
- * 순서는 정비 항목 {@code sortOrder} 순이다(D-63 B02).
+ * 순서는 정비 항목 {@code sortOrder} 순이다(D-63 B02). P0-나머지부터 항목마다 {@code lastDecline}·{@code lastCaution}도
+ * 10번과 같은 값으로 붙는다(F-CYC-02, #110).
  */
 public record PanelResponse(
     ReservationBlock reservation,
@@ -57,6 +59,8 @@ public record PanelResponse(
         BaseRecord baseRecord,
         LocalDate nextDueDate,
         Integer nextDueMileage,
+        CycleNote lastDecline,
+        CycleNote lastCaution,
         boolean highlighted) {
     }
 }

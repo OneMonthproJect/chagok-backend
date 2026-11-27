@@ -1,6 +1,9 @@
 package com.wanted.chagok.screen.visit.service;
 
 import com.wanted.chagok.domain.customer.api.CustomerReader;
+import com.wanted.chagok.domain.cycle.api.CycleNoteKind;
+import com.wanted.chagok.domain.cycle.api.CycleNoteRecord;
+import com.wanted.chagok.domain.cycle.api.CycleNotes;
 import com.wanted.chagok.domain.cycle.api.CycleRecord;
 import com.wanted.chagok.domain.cycle.api.CycleRule;
 import com.wanted.chagok.domain.cycle.api.ItemCycleCalculator;
@@ -78,29 +81,53 @@ public class ItemStatusService {
         Map<Long, List<MaintenanceRecordRef>> byVehicle = maintenanceReader.findRecordsByVehicle(shopId, vehicleIds);
         Map<Long, StatusCount> result = new LinkedHashMap<>();
         for (Long vehicleId : vehicleIds) {
-            List<ItemStatusResponse.Item> perItem = statuses(items,
-                byVehicle.getOrDefault(vehicleId, List.<MaintenanceRecordRef>of()), today, null);
-            result.put(vehicleId, new StatusCount(
-                (int) perItem.stream().filter(i -> i.status() == ItemStatus.DUE).count(),
-                (int) perItem.stream().filter(i -> i.status() == ItemStatus.SOON).count()));
+            Map<Long, List<MaintenanceRecordRef>> recordsByItem =
+                byItem(byVehicle.getOrDefault(vehicleId, List.<MaintenanceRecordRef>of()));
+            // 도래·임박 수만 필요하므로 거절·주의 꼬리표(judgeNotes)는 판정하지 않는다
+            int due = 0;
+            int soon = 0;
+            for (ItemRef item : items) {
+                ItemStatus status = calculate(item, recordsByItem, today, null).status();
+                if (status == ItemStatus.DUE) {
+                    due++;
+                } else if (status == ItemStatus.SOON) {
+                    soon++;
+                }
+            }
+            result.put(vehicleId, new StatusCount(due, soon));
         }
         return result;
     }
 
-    /** 한 차량의 사용 항목별 상태. 날짜·km 비교는 {@link ItemCycleCalculator} 한 곳이고 API 10과 07이 이 메서드를 같이 쓴다. */
+    /**
+     * 한 차량의 사용 항목별 상태와 거절·주의 꼬리표. 날짜·km 비교와 꼬리표 판정은 {@link ItemCycleCalculator} 한 곳이고,
+     * 여기서는 값을 옮겨 담기만 한다. 꼬리표는 상태를 바꾸지 않는다 (04 F-CYC-02).
+     */
     private List<ItemStatusResponse.Item> statuses(List<ItemRef> items, List<MaintenanceRecordRef> records,
         LocalDate today, Integer mileage) {
-        Map<Long, List<CycleRecord>> recordsByItem = records.stream()
-            .collect(Collectors.groupingBy(MaintenanceRecordRef::itemId,
-                Collectors.mapping(ItemStatusService::toCycleRecord, Collectors.toList())));
+        Map<Long, List<MaintenanceRecordRef>> recordsByItem = byItem(records);
         return items.stream()
             .map(item -> {
-                ItemCycleResult r = calculator.calculate(new CycleRule(item.cycleMonths(), item.cycleKm()),
-                    recordsByItem.getOrDefault(item.itemId(), List.of()), today, mileage);
+                ItemCycleResult r = calculate(item, recordsByItem, today, mileage);
+                CycleNotes notes = calculator.judgeNotes(
+                    recordsByItem.getOrDefault(item.itemId(), List.of()).stream()
+                        .map(ItemStatusService::toNoteRecord).toList());
                 return new ItemStatusResponse.Item(item.itemId(), item.code(), item.name(), r.status(),
-                    r.dueReason(), r.baseRecord(), r.nextDueDate(), r.nextDueMileage());
+                    r.dueReason(), r.baseRecord(), r.nextDueDate(), r.nextDueMileage(),
+                    notes.lastDecline(), notes.lastCaution());
             })
             .toList();
+    }
+
+    private ItemCycleResult calculate(ItemRef item, Map<Long, List<MaintenanceRecordRef>> recordsByItem,
+        LocalDate today, Integer mileage) {
+        List<CycleRecord> records = recordsByItem.getOrDefault(item.itemId(), List.of()).stream()
+            .map(ItemStatusService::toCycleRecord).toList();
+        return calculator.calculate(new CycleRule(item.cycleMonths(), item.cycleKm()), records, today, mileage);
+    }
+
+    private static Map<Long, List<MaintenanceRecordRef>> byItem(List<MaintenanceRecordRef> records) {
+        return records.stream().collect(Collectors.groupingBy(MaintenanceRecordRef::itemId));
     }
 
     /** 한 차량의 도래·임박 항목 수 (API 07). */
@@ -109,5 +136,12 @@ public class ItemStatusService {
 
     private static CycleRecord toCycleRecord(MaintenanceRecordRef r) {
         return new CycleRecord(r.date(), r.mileage(), r.resetsCycle(), r.createdAt(), r.recordId(), r.type());
+    }
+
+    /** 꼬리표 판정 재료. 거절·점검 주의 여부는 maintenance가 알려 주고(api 메서드), 판정은 cycle이 한다. */
+    private static CycleNoteRecord toNoteRecord(MaintenanceRecordRef r) {
+        CycleNoteKind kind = r.isDecline() ? CycleNoteKind.DECLINE
+            : r.isInspectCaution() ? CycleNoteKind.INSPECT_CAUTION : CycleNoteKind.OTHER;
+        return new CycleNoteRecord(r.date(), r.createdAt(), r.recordId(), r.resetsCycle(), kind, r.memo());
     }
 }

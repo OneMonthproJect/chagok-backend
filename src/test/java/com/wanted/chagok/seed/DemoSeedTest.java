@@ -23,11 +23,11 @@ import org.springframework.transaction.annotation.Transactional;
 /**
  * V1-11 시연 시드 적용 — chagok-docs 07 6.3 V1-11, 07 7장 시드 구성.
  *
- * <p>CI db-test의 빈 MySQL(V1 적용)에 {@code db/seed/demo_seed.sql}을 <b>테스트 트랜잭션 안에서</b> 실행하고 끝나면 롤백한다.
+ * <p>CI db-test의 빈 MySQL(V1·V2 적용)에 {@code db/seed/demo_seed.sql}을 <b>테스트 트랜잭션 안에서</b> 실행하고 끝나면 롤백한다.
  * 실제·개발·시연 DB에는 실행하지 않는다(시연 DB에는 {@code run-demo-seed.sh}로만 넣는다, README).
  *
  * <p>확인하는 것: 시드가 V1 제약(FK·CHECK·NOT NULL·UNIQUE)에 걸리지 않고 들어간다, 07 7.1~7.4의 건수·계정·담당·격리·상대 날짜,
- * 07 7.5 중 DB만으로 확인할 수 있는 값(오늘 예약 2건, A 고객 10명·차량 11대).
+ * 07 7.5 중 DB만으로 확인할 수 있는 값(오늘 예약 3건, A 고객 10명·차량 11대).
  *
  * <p>LIMIT: 07 7.5의 "오늘 연락할 고객 5명"·"재점검 대상 6대"와 차량별 기대 상태(도래·임박·여유·미확인)는 주기 계산(cycle)과
  * 대상 목록 API가 생긴 뒤 그 테스트에서 확인한다. 여기서는 그 상태를 만들 기록 날짜가 07대로 들어갔는지까지만 본다.
@@ -47,7 +47,7 @@ class DemoSeedTest {
     private DataSource dataSource;
 
     @Test
-    @DisplayName("V1-11 시연 시드를 V1 위에 적용 → 성공, 07 7장 건수·계정·담당·격리·상대 날짜, 7.5 오늘 예약 2건·A 고객 10·차량 11")
+    @DisplayName("V1-11 시연 시드를 V1·V2 위에 적용 → 성공, 07 7장 건수·계정·담당·격리·상대 날짜·V2 값, 7.5 오늘 예약 3건·A 고객 10·차량 11")
     void demoSeedAppliesOnV1AndMatchesSeedTable() {
         JdbcTemplate jdbc = new JdbcTemplate(dataSource);
         // run-demo-seed.sh와 같은 전제: shop이 비어 있는 DB
@@ -63,9 +63,15 @@ class DemoSeedTest {
         // 건수 (07 7.1~7.4)
         Map<String, Integer> expectedCounts = Map.of(
             "platform_admin", 1, "shop", 2, "staff", 3, "service_item", 12, "customer", 11,
-            "vehicle", 12, "maintenance_record", 17, "reservation", 4, "reservation_item", 3);
+            "vehicle", 12, "maintenance_record", 17, "reservation", 5, "reservation_item", 4);
         expectedCounts.forEach((table, expected) ->
             assertThat(count(jdbc, "SELECT COUNT(*) FROM " + table)).as("rows of %s", table).isEqualTo(expected));
+
+        // 7.1 (V2): 시연 정비소의 사업자등록번호·주소는 시연용 가짜 값 (숫자 10자리, 실제 번호·주소 아님)
+        assertThat(jdbc.queryForList("SELECT CONCAT_WS('|', name, brn, shop_address) FROM shop ORDER BY id", String.class))
+            .containsExactly("차곡카센터|000-00-00001|서울특별시 시연구 차곡로 1 (시연용)",
+                "바른카센터|000-00-00002|서울특별시 시연구 바른로 2 (시연용)");
+        assertThat(jdbc.queryForList("SELECT REPLACE(brn, '-', '') FROM shop", String.class)).allMatch(b -> b.matches("\\d{10}"));
 
         // 7.5: A 정비소 고객 10명·차량 11대, B는 1·1
         assertThat(count(jdbc, "SELECT COUNT(*) FROM customer WHERE shop_id = ?", shopA)).isEqualTo(10);
@@ -149,6 +155,11 @@ class DemoSeedTest {
                 + " FROM maintenance_record r JOIN shop sh ON sh.id = r.shop_id JOIN vehicle v ON v.id = r.vehicle_id"
                 + " JOIN service_item si ON si.id = r.service_item_id ORDER BY r.id", String.class))
             .containsExactlyElementsOf(expectedRecords);
+        // 7.2 (V2): 점검 결과 "주의"는 윤하늘 33아0008의 점검 기록 1건뿐이고 메모가 붙는다. 나머지 기록은 점검 결과·메모가 없다
+        assertThat(jdbc.queryForList(
+            "SELECT CONCAT_WS('|', v.plate_number, r.record_type, r.inspect_result, r.memo) FROM maintenance_record r"
+                + " JOIN vehicle v ON v.id = r.vehicle_id WHERE r.inspect_result IS NOT NULL OR r.memo IS NOT NULL", String.class))
+            .containsExactly("33아0008|INSPECT|CAUTION|타이어 트레드 마모 진행, 다음 방문 때 교체 권장");
         // 기록의 담당: A는 mech_a, B는 owner_b (시드 선택값). 이력 많은 차량 55차0010은 방문 3회
         assertThat(jdbc.queryForList(
             "SELECT DISTINCT CONCAT(sh.name, ':', s.login_id) FROM maintenance_record r JOIN shop sh ON sh.id = r.shop_id"
@@ -169,10 +180,11 @@ class DemoSeedTest {
                 "78라0004|" + datetime(jdbc, "TIMESTAMP(" + TODAY + ", '10:00:00')") + "|RESERVED|0|-|ENGINE_OIL|mech_a|mech_a",
                 "22사0007|" + datetime(jdbc, "TIMESTAMP(" + TODAY + ", '14:30:00')") + "|RESERVED|1|에어컨 냄새|-|owner_a|owner_a",
                 "34나0002|" + datetime(jdbc, "TIMESTAMP(" + TODAY + " + INTERVAL 2 DAY, '10:00:00')") + "|RESERVED|0|-|ENGINE_OIL|mech_a|mech_a",
-                "55차0010|" + datetime(jdbc, "TIMESTAMP(" + TODAY + " - INTERVAL 1 DAY, '15:00:00')") + "|RESERVED|0|-|BATTERY|owner_a|owner_a");
-        // 7.5: 홈 "오늘 예약" 2건
+                "55차0010|" + datetime(jdbc, "TIMESTAMP(" + TODAY + " - INTERVAL 1 DAY, '15:00:00')") + "|RESERVED|0|-|BATTERY|owner_a|owner_a",
+                "90마0005|" + datetime(jdbc, "TIMESTAMP(" + TODAY + ", '09:00:00')") + "|IN_PROGRESS|0|-|ENGINE_OIL|mech_a|mech_a");
+        // 7.5: 홈 "오늘 예약" 3건 (진행중 1건 포함, 취소만 뺀다)
         assertThat(count(jdbc, "SELECT COUNT(*) FROM reservation WHERE shop_id = ? AND DATE(reserved_at) = " + TODAY, shopA))
-            .isEqualTo(2);
+            .isEqualTo(3);
 
         // 생성 시각: 미래 시각 없음, 정비 기록은 기록 날짜와 같은 날 (07 7장 "날짜 칼럼과 어긋나지 않게")
         for (String table : expectedCounts.keySet()) {

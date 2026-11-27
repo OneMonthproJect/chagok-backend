@@ -112,6 +112,7 @@ class ReservationStartServiceTest {
         assertThat(response.status()).isEqualTo(ReservationStatus.IN_PROGRESS);
         assertThat(response.reservationId()).isEqualTo(1L);
         assertThat(response.vehicleId()).isEqualTo(4L);
+        assertThat(response.reservedAt()).isNull(); // 08 39는 18·20·21·40과 같은 4필드
         InOrder order = inOrder(customerWriter, repository);
         order.verify(customerWriter).getOwnedVehicleForVisit(3L, 4L);
         order.verify(customerWriter).applyVisit(3L, 4L, null, null, "modelYear");

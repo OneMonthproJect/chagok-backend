@@ -98,28 +98,36 @@ class ReservationSeedHttpDbTest {
     // ------------------------------------------------------------------ 기간 조회 (API 15) — 07 7.3·7.5, 08 15번 예시
 
     @Test
-    @DisplayName("7.5 오늘 예약 2건: 78라0004 10:00(엔진오일)·22사0007 14:30(기타), 시각 순, 연락처는 전체 번호, 담당(assignee)이 실린다")
-    void todaysTwoReservations() throws Exception {
+    @DisplayName("7.5 오늘 예약 3건: 90마0005 09:00(진행중)·78라0004 10:00(엔진오일)·22사0007 14:30(기타), 시각 순, 연락처는 전체 번호, 담당(assignee)이 실린다")
+    void todaysThreeReservations() throws Exception {
         mvc.perform(get("/api/reservations").header("Authorization", ownerA)
                 .param("from", today.toString()).param("to", today.toString()))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.data.from").value(today.toString()))
             .andExpect(jsonPath("$.data.to").value(today.toString()))
-            .andExpect(jsonPath("$.data.items.length()").value(2))
-            .andExpect(jsonPath("$.data.items[0].plateNumber").value("78라0004"))
-            .andExpect(jsonPath("$.data.items[0].reservedAt").value(today + "T10:00:00"))
-            .andExpect(jsonPath("$.data.items[0].status").value("RESERVED"))
-            .andExpect(jsonPath("$.data.items[0].version").value(0))
+            .andExpect(jsonPath("$.data.items.length()").value(3))
+            // 07 7.3 (V2): 90마0005 오늘 09:00 진행중, 담당 mech_a
+            .andExpect(jsonPath("$.data.items[0].plateNumber").value("90마0005"))
+            .andExpect(jsonPath("$.data.items[0].reservedAt").value(today + "T09:00:00"))
+            .andExpect(jsonPath("$.data.items[0].status").value("IN_PROGRESS"))
+            .andExpect(jsonPath("$.data.items[0].needsAction").value(false))
             .andExpect(jsonPath("$.data.items[0].purposeSummary").value("엔진오일"))
-            // 07 7.2 시드: 78라0004는 mech_a(김정비, 정비소 직원 둘째 → colorIndex 1), 22사0007은 owner_a(박사장 → 0). API 36과 같은 값
             .andExpect(jsonPath("$.data.items[0].assignee.name").value("김정비"))
             .andExpect(jsonPath("$.data.items[0].assignee.colorIndex").value(1))
-            .andExpect(jsonPath("$.data.items[0].phone").value(org.hamcrest.Matchers.containsString("****")))
-            .andExpect(jsonPath("$.data.items[1].plateNumber").value("22사0007"))
-            .andExpect(jsonPath("$.data.items[1].reservedAt").value(today + "T14:30:00"))
-            .andExpect(jsonPath("$.data.items[1].purposeSummary").value("기타"))
-            .andExpect(jsonPath("$.data.items[1].assignee.name").value("박사장"))
-            .andExpect(jsonPath("$.data.items[1].assignee.colorIndex").value(0));
+            .andExpect(jsonPath("$.data.items[1].plateNumber").value("78라0004"))
+            .andExpect(jsonPath("$.data.items[1].reservedAt").value(today + "T10:00:00"))
+            .andExpect(jsonPath("$.data.items[1].status").value("RESERVED"))
+            .andExpect(jsonPath("$.data.items[1].version").value(0))
+            .andExpect(jsonPath("$.data.items[1].purposeSummary").value("엔진오일"))
+            // 07 7.2 시드: 78라0004는 mech_a(김정비, 정비소 직원 둘째 → colorIndex 1), 22사0007은 owner_a(박사장 → 0). API 36과 같은 값
+            .andExpect(jsonPath("$.data.items[1].assignee.name").value("김정비"))
+            .andExpect(jsonPath("$.data.items[1].assignee.colorIndex").value(1))
+            .andExpect(jsonPath("$.data.items[1].phone").value(org.hamcrest.Matchers.containsString("****")))
+            .andExpect(jsonPath("$.data.items[2].plateNumber").value("22사0007"))
+            .andExpect(jsonPath("$.data.items[2].reservedAt").value(today + "T14:30:00"))
+            .andExpect(jsonPath("$.data.items[2].purposeSummary").value("기타"))
+            .andExpect(jsonPath("$.data.items[2].assignee.name").value("박사장"))
+            .andExpect(jsonPath("$.data.items[2].assignee.colorIndex").value(0));
     }
 
     @Test
@@ -141,16 +149,16 @@ class ReservationSeedHttpDbTest {
     }
 
     @Test
-    @DisplayName("전 기간(어제~D+2)은 시드 4건이 시각 순으로, 기간 규칙 위반(from>to, 43일)은 400, B 정비소 토큰에는 A 예약이 보이지 않는다 (X7)")
+    @DisplayName("전 기간(어제~D+2)은 시드 5건이 시각 순으로, 기간 규칙 위반(from>to, 43일)은 400, B 정비소 토큰에는 A 예약이 보이지 않는다 (X7)")
     void periodAndIsolation() throws Exception {
         mvc.perform(get("/api/reservations").header("Authorization", ownerA)
                 .param("from", today.minusDays(1).toString()).param("to", today.plusDays(2).toString()))
-            .andExpect(jsonPath("$.data.items.length()").value(4))
+            .andExpect(jsonPath("$.data.items.length()").value(5))
             .andExpect(jsonPath("$.data.items[0].plateNumber").value("55차0010"))
-            .andExpect(jsonPath("$.data.items[3].plateNumber").value("34나0002"))
+            .andExpect(jsonPath("$.data.items[4].plateNumber").value("34나0002"))
             .andExpect(jsonPath("$.data.items[0].assignee.name").value("박사장")) // 55차0010 어제 예약: owner_a
-            .andExpect(jsonPath("$.data.items[3].assignee.name").value("김정비")) // 34나0002 D+2 예약: mech_a, 직원 순번 1
-            .andExpect(jsonPath("$.data.items[3].assignee.colorIndex").value(1));
+            .andExpect(jsonPath("$.data.items[4].assignee.name").value("김정비")) // 34나0002 D+2 예약: mech_a, 직원 순번 1
+            .andExpect(jsonPath("$.data.items[4].assignee.colorIndex").value(1));
         mvc.perform(get("/api/reservations").header("Authorization", ownerA)
                 .param("from", today.plusDays(1).toString()).param("to", today.toString()))
             .andExpect(status().isBadRequest())

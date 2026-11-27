@@ -96,35 +96,43 @@ class HomeSeedHttpDbTest {
     }
 
     @Test
-    @DisplayName("7.5 홈 숫자: 오늘 예약 2건, 오늘 연락할 고객 5명")
+    @DisplayName("7.5 홈 숫자: 오늘 예약 3건(진행중 1건 포함), 오늘 연락할 고객 5명")
     void seedNumbers() throws Exception {
         String body = home(ownerA);
 
         assertThat(JsonPath.<String>read(body, "$.data.date")).isEqualTo(today.toString());
-        assertThat(JsonPath.<Integer>read(body, "$.data.todayReservationCount")).isEqualTo(2);
+        assertThat(JsonPath.<Integer>read(body, "$.data.todayReservationCount")).isEqualTo(3);
         assertThat(JsonPath.<Integer>read(body, "$.data.todayContactCount")).isEqualTo(5);
     }
 
     @Test
-    @DisplayName("오늘 예약 목록: 78라0004 10:00(엔진오일)·22사0007 14:30(기타) 시각 순, 연락처는 전체 번호, 어제·D+2 예약은 나오지 않고 담당(assignee)이 실린다")
+    @DisplayName("오늘 예약 목록: 90마0005 09:00(진행중)·78라0004 10:00(엔진오일)·22사0007 14:30(기타) 시각 순, 연락처는 전체 번호, 어제·D+2 예약은 나오지 않고 담당(assignee)이 실린다")
     void todayReservations() throws Exception {
         mvc.perform(get("/api/home").header("Authorization", ownerA))
             .andExpect(status().isOk())
-            .andExpect(jsonPath("$.data.todayReservations.length()").value(2))
-            .andExpect(jsonPath("$.data.todayReservations[0].plateNumber").value("78라0004"))
-            .andExpect(jsonPath("$.data.todayReservations[0].reservedAt").value(today + "T10:00:00"))
-            .andExpect(jsonPath("$.data.todayReservations[0].status").value("RESERVED"))
+            .andExpect(jsonPath("$.data.todayReservations.length()").value(3))
+            .andExpect(jsonPath("$.data.todayReservations[0].plateNumber").value("90마0005"))
+            .andExpect(jsonPath("$.data.todayReservations[0].reservedAt").value(today + "T09:00:00"))
+            .andExpect(jsonPath("$.data.todayReservations[0].status").value("IN_PROGRESS"))
+            .andExpect(jsonPath("$.data.todayReservations[0].customerName").value("정우성"))
             .andExpect(jsonPath("$.data.todayReservations[0].version").value(0))
-            .andExpect(jsonPath("$.data.todayReservations[0].customerName").value("최지은"))
-            .andExpect(jsonPath("$.data.todayReservations[0].phone").value("010-****-0004"))
+            .andExpect(jsonPath("$.data.todayReservations[0].phone").value("010-****-0005"))
             .andExpect(jsonPath("$.data.todayReservations[0].purposeSummary").value("엔진오일"))
             .andExpect(jsonPath("$.data.todayReservations[0].assignee.name").value("김정비"))
-            .andExpect(jsonPath("$.data.todayReservations[0].assignee.colorIndex").value(1))
-            .andExpect(jsonPath("$.data.todayReservations[1].plateNumber").value("22사0007"))
-            .andExpect(jsonPath("$.data.todayReservations[1].reservedAt").value(today + "T14:30:00"))
-            .andExpect(jsonPath("$.data.todayReservations[1].purposeSummary").value("기타"))
-            .andExpect(jsonPath("$.data.todayReservations[1].assignee.name").value("박사장"))
-            .andExpect(jsonPath("$.data.todayReservations[1].assignee.colorIndex").value(0))
+            .andExpect(jsonPath("$.data.todayReservations[1].plateNumber").value("78라0004"))
+            .andExpect(jsonPath("$.data.todayReservations[1].reservedAt").value(today + "T10:00:00"))
+            .andExpect(jsonPath("$.data.todayReservations[1].status").value("RESERVED"))
+            .andExpect(jsonPath("$.data.todayReservations[1].version").value(0))
+            .andExpect(jsonPath("$.data.todayReservations[1].customerName").value("최지은"))
+            .andExpect(jsonPath("$.data.todayReservations[1].phone").value("010-****-0004"))
+            .andExpect(jsonPath("$.data.todayReservations[1].purposeSummary").value("엔진오일"))
+            .andExpect(jsonPath("$.data.todayReservations[1].assignee.name").value("김정비"))
+            .andExpect(jsonPath("$.data.todayReservations[1].assignee.colorIndex").value(1))
+            .andExpect(jsonPath("$.data.todayReservations[2].plateNumber").value("22사0007"))
+            .andExpect(jsonPath("$.data.todayReservations[2].reservedAt").value(today + "T14:30:00"))
+            .andExpect(jsonPath("$.data.todayReservations[2].purposeSummary").value("기타"))
+            .andExpect(jsonPath("$.data.todayReservations[2].assignee.name").value("박사장"))
+            .andExpect(jsonPath("$.data.todayReservations[2].assignee.colorIndex").value(0))
             .andExpect(jsonPath("$.data.todayReservations[?(@.plateNumber=='55차0010')]").isEmpty())
             .andExpect(jsonPath("$.data.todayReservations[?(@.plateNumber=='34나0002')]").isEmpty());
     }
@@ -146,7 +154,7 @@ class HomeSeedHttpDbTest {
     }
 
     @Test
-    @DisplayName("04 완료 기준: 대상 고객(김민수 12가0001)의 예약을 하나 등록하면 오늘 연락할 고객에서 빠지고(5→4), 오늘 예약이 3건(시각 순)이 된다")
+    @DisplayName("04 완료 기준: 대상 고객(김민수 12가0001)의 예약을 하나 등록하면 오늘 연락할 고객에서 빠지고(5→4), 오늘 예약이 4건(시각 순)이 된다")
     void registeringAReservationRemovesTheCustomerFromContacts() throws Exception {
         mvc.perform(post("/api/reservations").header("Authorization", ownerA)
                 .contentType(MediaType.APPLICATION_JSON)
@@ -158,10 +166,10 @@ class HomeSeedHttpDbTest {
         mvc.perform(get("/api/home").header("Authorization", ownerA))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.data.todayContactCount").value(4))
-            .andExpect(jsonPath("$.data.todayReservationCount").value(3))
-            .andExpect(jsonPath("$.data.todayReservations.length()").value(3))
-            .andExpect(jsonPath("$.data.todayReservations[2].plateNumber").value("12가0001"))
-            .andExpect(jsonPath("$.data.todayReservations[2].reservedAt").value(today + "T18:00:00"));
+            .andExpect(jsonPath("$.data.todayReservationCount").value(4))
+            .andExpect(jsonPath("$.data.todayReservations.length()").value(4))
+            .andExpect(jsonPath("$.data.todayReservations[3].plateNumber").value("12가0001"))
+            .andExpect(jsonPath("$.data.todayReservations[3].reservedAt").value(today + "T18:00:00"));
     }
 
     @Test

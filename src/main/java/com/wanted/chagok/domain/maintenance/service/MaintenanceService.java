@@ -475,7 +475,7 @@ public class MaintenanceService implements MaintenanceReader {
                         r.getRecordType().name(), r.getRecordDate(), r.getMemo(),
                         r.getSource(), r.getInspectResult(),
                         r.getVersion(), originalStaff.containsKey(r.getId()),
-                        new VisitRef.RecordStaff(r.getStaffId(), staffNames.getOrDefault(r.getStaffId(), ""))))
+                        new VisitRef.RecordStaff(r.getStaffId(), staffNames.getOrDefault(r.getStaffId(), "")), r.getMileage()))
                     .toList()))
             .toList();
     }

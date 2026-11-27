@@ -30,6 +30,7 @@ public record VisitRef(
      * @param version       수정 확인용 번호 (저장 때 0, 수정마다 +1)
      * @param edited        수정 이력(38)이 한 건이라도 있으면 true
      * @param staff         그 기록의 담당 정비사
+     * @param mileage       그 기록 행의 주행거리(08 11·17 `records[].mileage`, F-MNT-04). 외부 기록은 확인되지 않았으면 null이고 null은 0이 아니다. 방문 `mileage`와 별개다
      */
     public record VisitRecord(
         long recordId,
@@ -42,7 +43,8 @@ public record VisitRef(
         String inspectResult,
         int version,
         boolean edited,
-        RecordStaff staff
+        RecordStaff staff,
+        Integer mileage
     ) {
     }
 

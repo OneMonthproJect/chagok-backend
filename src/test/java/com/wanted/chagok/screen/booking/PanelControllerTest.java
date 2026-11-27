@@ -70,7 +70,7 @@ class PanelControllerTest {
             new PanelResponse.VehicleBlock(10L, "55차0010", "쏘나타", 2018, 97000),
             List.of(new VisitRef("5eed-15", LocalDate.of(2026, 10, 24), null, "김정비", List.of(
                 new VisitRef.VisitRecord(16L, 1L, "엔진오일", "REPLACE", LocalDate.of(2026, 10, 24), null,
-                    "SHOP", null, 0, false, new VisitRef.RecordStaff(2L, "김정비"))))),
+                    "SHOP", null, 0, false, new VisitRef.RecordStaff(2L, "김정비"), null)))),
             3L,
             List.of(new PanelResponse.ItemStatusBlock(6L, "BATTERY", "배터리", ItemStatus.SOON, null,
                 new BaseRecord(LocalDate.of(2023, 12, 14), null, "REPLACE"), LocalDate.of(2026, 12, 14), null,

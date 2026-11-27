@@ -124,6 +124,30 @@ class MaintenanceServiceTest {
     }
 
     @Test
+    @DisplayName("API 11·17: Entity의 source·inspectResult를 그대로 옮겨 담는다 (#110 PR-B)")
+    void listVisits_mapsSourceAndInspectResult() {
+        MaintenanceRecord inspect = record(2, "v", 2, "2026-10-24", null, RecordType.INSPECT, "2026-10-24T10:00:00");
+        ReflectionTestUtils.setField(inspect, "inspectResult", "CAUTION");
+        when(repository.findByShopIdAndVehicleId(SHOP, VEHICLE)).thenReturn(List.of(
+            record(1, "v", 1, "2026-10-24", null, RecordType.REPLACE, "2026-10-24T10:00:00"),
+            inspect,
+            record(3, "e", 1, "2026-06-01", null, RecordType.EXTERNAL, "2026-10-25T10:00:00")));
+        stubItems();
+        when(staff.findNames(SHOP, Set.of(11L))).thenReturn(Map.of(11L, "김정비"));
+
+        VisitListResponse result = service().listVisits(SHOP, VEHICLE, PageLimit.of(null, null));
+
+        List<VisitRef.VisitRecord> all = result.items().stream().flatMap(v -> v.records().stream()).toList();
+        assertThat(all).extracting(VisitRef.VisitRecord::recordId).containsExactlyInAnyOrder(1L, 2L, 3L);
+        assertThat(all).filteredOn(r -> r.recordId() == 1).singleElement()
+            .satisfies(r -> { assertThat(r.source()).isEqualTo("SHOP"); assertThat(r.inspectResult()).isNull(); });
+        assertThat(all).filteredOn(r -> r.recordId() == 2).singleElement()
+            .satisfies(r -> { assertThat(r.source()).isEqualTo("SHOP"); assertThat(r.inspectResult()).isEqualTo("CAUTION"); });
+        assertThat(all).filteredOn(r -> r.recordId() == 3).singleElement()
+            .satisfies(r -> { assertThat(r.source()).isEqualTo("CUSTOMER_STATEMENT"); assertThat(r.inspectResult()).isNull(); });
+    }
+
+    @Test
     @DisplayName("API 11: 쪽 나누기는 방문 묶음 수 기준이고 범위를 넘는 쪽은 빈 목록")
     void listVisits_paging() {
         when(repository.findByShopIdAndVehicleId(SHOP, VEHICLE)).thenReturn(List.of(

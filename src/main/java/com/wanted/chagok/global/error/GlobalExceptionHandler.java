@@ -125,19 +125,26 @@ public class GlobalExceptionHandler {
             return respond(ErrorCode.INTERNAL_ERROR, List.of(), null);
         }
         log.debug("response status {}", status);
-        ErrorCode code = switch (status) {
-            case 401 -> ErrorCode.AUTH_REQUIRED;
-            case 403 -> ErrorCode.FORBIDDEN;
-            case 404 -> ErrorCode.NOT_FOUND;
-            default -> ErrorCode.INVALID_INPUT;
-        };
-        return respond(code, List.of(), null);
+        return respond(forHttpStatus(status), List.of(), null);
     }
 
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ApiResponse<Void>> handleUnexpected(Exception e) {
         log.error("unexpected error", e);
         return respond(ErrorCode.INTERNAL_ERROR, List.of(), null);
+    }
+
+    /** HTTP 상태 → 공통 코드. 401·403·404는 그 코드, 그 밖 4xx는 {@code INVALID_INPUT}, 5xx는 {@code INTERNAL_ERROR}. {@code /error}도 같은 규칙을 쓴다. */
+    static ErrorCode forHttpStatus(int status) {
+        if (status >= 500) {
+            return ErrorCode.INTERNAL_ERROR;
+        }
+        return switch (status) {
+            case 401 -> ErrorCode.AUTH_REQUIRED;
+            case 403 -> ErrorCode.FORBIDDEN;
+            case 404 -> ErrorCode.NOT_FOUND;
+            default -> ErrorCode.INVALID_INPUT;
+        };
     }
 
     private static ResponseEntity<ApiResponse<Void>> respond(ErrorCode code, List<FieldErrorDetail> fields, Object details) {

@@ -2,6 +2,7 @@ package com.wanted.chagok.global.config;
 
 import com.wanted.chagok.global.auth.JwtVerification;
 import com.wanted.chagok.global.auth.SecurityErrorResponder;
+import jakarta.servlet.DispatcherType;
 import java.time.Clock;
 import java.util.Arrays;
 import org.springframework.beans.factory.annotation.Value;
@@ -60,6 +61,9 @@ public class SecurityConfig {
             .logout(logout -> logout.disable())
             .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
             .authorizeHttpRequests(auth -> auth
+                // 컨테이너가 오류를 /error로 넘기는 ERROR 디스패치만 연다. 막으면 원래 상태 코드(400 등)가 401·403으로 바뀐다 (#17).
+                // /error를 직접 부르는 요청(REQUEST 디스패치)은 아래 anyRequest().denyAll()이 그대로 막는다.
+                .dispatcherTypeMatchers(DispatcherType.ERROR).permitAll()
                 .requestMatchers(HttpMethod.GET, "/actuator/health").permitAll()
                 .requestMatchers(HttpMethod.POST, LOGIN_PATHS).permitAll()
                 .requestMatchers("/api/admin/**").hasRole("ADMIN")

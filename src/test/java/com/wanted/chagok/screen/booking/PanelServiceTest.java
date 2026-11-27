@@ -90,7 +90,8 @@ class PanelServiceTest {
         when(reservationReader.getOwnedDetail(SHOP, RESERVATION)).thenReturn(reservation);
         stubVehicleAndCustomer();
         VisitRef visit = new VisitRef("5eed-15", LocalDate.of(2026, 10, 24), null, "김정비", List.of(
-            new VisitRef.VisitRecord(16L, 1L, "엔진오일", "REPLACE", LocalDate.of(2026, 10, 24), null)));
+            new VisitRef.VisitRecord(16L, 1L, "엔진오일", "REPLACE", LocalDate.of(2026, 10, 24), null,
+                0, false, new VisitRef.RecordStaff(2L, "김정비"))));
         when(maintenanceReader.findRecentVisits(SHOP, VEHICLE, 2)).thenReturn(List.of(visit));
         when(maintenanceReader.countVisits(SHOP, VEHICLE)).thenReturn(3L);
         when(itemReader.findItems(SHOP, List.of(6L))).thenReturn(Map.of(6L, item(6L, "BATTERY", "배터리", 36, 6)));

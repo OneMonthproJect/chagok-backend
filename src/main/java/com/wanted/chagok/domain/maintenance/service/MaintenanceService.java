@@ -9,12 +9,18 @@ import com.wanted.chagok.domain.item.api.ItemRef;
 import com.wanted.chagok.domain.maintenance.api.MaintenanceReader;
 import com.wanted.chagok.domain.maintenance.api.MaintenanceRecordRef;
 import com.wanted.chagok.domain.maintenance.api.VisitRef;
+import com.wanted.chagok.domain.maintenance.dto.RecordEditRequest;
+import com.wanted.chagok.domain.maintenance.dto.RecordEditResponse;
+import com.wanted.chagok.domain.maintenance.dto.RecordRevisionListResponse;
 import com.wanted.chagok.domain.maintenance.dto.VisitListResponse;
 import com.wanted.chagok.domain.maintenance.dto.VisitSaveRequest;
 import com.wanted.chagok.domain.maintenance.dto.VisitSaveResponse;
 import com.wanted.chagok.domain.maintenance.entity.MaintenanceRecord;
+import com.wanted.chagok.domain.maintenance.entity.MaintenanceRecordRevision;
 import com.wanted.chagok.domain.maintenance.entity.RecordType;
 import com.wanted.chagok.domain.maintenance.repository.MaintenanceRecordRepository;
+import com.wanted.chagok.domain.maintenance.repository.MaintenanceRecordRevisionRepository;
+import com.wanted.chagok.global.auth.LoginStaff;
 import com.wanted.chagok.global.error.BusinessException;
 import com.wanted.chagok.global.error.ErrorCode;
 import com.wanted.chagok.global.response.ApiResponse.FieldErrorDetail;
@@ -38,7 +44,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * 방문 이력 조회(API 11, F-MNT-01), 방문·정비 기록 저장(API 12)과 다른 도메인에 주는 읽기 계약 구현.
+ * 방문 이력 조회(API 11, F-MNT-01), 방문·정비 기록 저장(API 12), 기록 수정(API 37)·수정 이력(API 38, F-MNT-04)과 다른 도메인에 주는 읽기 계약 구현.
  * 차량 소속은 {@code customer.api}, 항목은 {@code item.api}, 담당 이름은 {@code account.api}로만 확인한다. 차량 값 반영도 {@code customer.api}의
  * 쓰기 계약({@link CustomerWriter})으로만 한다. 모든 조회는 {@code shopId}와 함께 한다(I-3).
  */
@@ -52,15 +58,18 @@ public class MaintenanceService implements MaintenanceReader {
     private static final Set<String> INSPECT_RESULTS = Set.of("GOOD", "CAUTION");
 
     private final MaintenanceRecordRepository records;
+    private final MaintenanceRecordRevisionRepository revisions;
     private final CustomerReader customers;
     private final CustomerWriter vehicleWriter;
     private final ItemReader items;
     private final StaffReader staff;
     private final Clock clock;
 
-    public MaintenanceService(MaintenanceRecordRepository records, CustomerReader customers,
-                              CustomerWriter vehicleWriter, ItemReader items, StaffReader staff, Clock clock) {
+    public MaintenanceService(MaintenanceRecordRepository records, MaintenanceRecordRevisionRepository revisions,
+                              CustomerReader customers, CustomerWriter vehicleWriter, ItemReader items,
+                              StaffReader staff, Clock clock) {
         this.records = records;
+        this.revisions = revisions;
         this.customers = customers;
         this.vehicleWriter = vehicleWriter;
         this.items = items;
@@ -184,6 +193,184 @@ public class MaintenanceService implements MaintenanceReader {
         return memo == null || memo.isBlank() ? null : memo.strip();
     }
 
+    /**
+     * API 37 정비 기록 수정 (04 F-MNT-04, D-55). 순서(08 37번): 형식(400) → 정비소 소유(404, X14) → {@code version}(409) →
+     * 권한({@link MaintenanceEditRule}, 403) → 항목·담당(400, X11·X13) → 구분·점검 결과 짝(400) → 바뀐 필드가 있는지(400) →
+     * 같은 방문 항목 중복(400) → 저장. 하나라도 어긋나면 기록·{@code version}·이력이 모두 그대로다.
+     * 수정 전 값 전체를 이력 1행으로 같은 트랜잭션에 남기고, 바뀐 주행거리가 차량의 최근 주행거리보다 크면 차량을 갱신한다(POL-60).
+     */
+    @Transactional
+    public RecordEditResponse editRecord(LoginStaff staff, long recordId, RecordEditRequest request) {
+        long shopId = staff.shopId();
+        LocalDate today = LocalDate.now(clock);
+        validateEditFormat(request, today);
+
+        MaintenanceRecord record = records.findByShopIdAndId(shopId, recordId)
+            .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND));
+        record.requireVersion(request.version());
+        MaintenanceEditRule.requireAllowed(staff.isOwner(), staff.staffId() == record.getStaffId(), today,
+            record.editPeriodBaseDate());
+
+        if (request.itemId() != null && request.itemId() != record.getServiceItemId()) {
+            items.requireActiveItems(shopId, List.of(request.itemId()), "itemId");
+        }
+        long newStaffId = record.getStaffId();
+        if (request.mechanicId() != null && request.mechanicId() != record.getStaffId()) {
+            newStaffId = resolveMechanic(shopId, staff.staffId(), request.mechanicId());
+        }
+
+        // 구분을 바꾸면 점검 결과는 비운다. INSPECT로 바꾸면서 결과를 안 보내면 null (08 37번)
+        RecordType newType = request.type() != null ? request.type() : record.getRecordType();
+        if (request.inspectResult() != null && newType != RecordType.INSPECT) {
+            throw BusinessException.invalidField("inspectResult", "점검일 때만 입력할 수 있습니다.");
+        }
+        String newInspect = newType != RecordType.INSPECT ? null
+            : request.inspectResult() != null ? request.inspectResult()
+            : newType == record.getRecordType() ? record.getInspectResult() : null;
+        LocalDate newDate = request.recordDate() != null ? request.recordDate() : record.getRecordDate();
+        Integer newMileage = request.mileage() != null ? request.mileage() : record.getMileage();
+        long newItemId = request.itemId() != null ? request.itemId() : record.getServiceItemId();
+        String newMemo = request.memo() != null ? blankToNull(request.memo()) : record.getMemo();
+
+        // 지금 값과 같은 필드는 바꾸는 것이 아니다 (08 37번)
+        boolean mileageChanges = !Objects.equals(newMileage, record.getMileage());
+        boolean changes = !newDate.equals(record.getRecordDate()) || mileageChanges || newType != record.getRecordType()
+            || newItemId != record.getServiceItemId() || !Objects.equals(newInspect, record.getInspectResult())
+            || !Objects.equals(newMemo, record.getMemo()) || newStaffId != record.getStaffId();
+        if (!changes) {
+            throw BusinessException.invalidField(firstSentField(request), "바뀐 항목이 없습니다.");
+        }
+        // 같은 방문의 행을 잠근 채로 읽어, 동시에 같은 항목으로 바꾸는 다른 수정과 겹치지 않게 한다 (H7)
+        if (newItemId != record.getServiceItemId() && records.findByShopIdAndVisitKeyOrderByIdAsc(shopId, record.getVisitKey())
+            .stream().anyMatch(o -> !o.getId().equals(record.getId()) && o.getServiceItemId() == newItemId)) {
+            throw BusinessException.invalidField("itemId", "같은 방문에 같은 항목을 두 번 넣을 수 없습니다.");
+        }
+
+        long revisionNo = revisions.countByShopIdAndRecordId(shopId, record.getId()) + 1;
+        // 수정 전 값은 지금 만들어 두고, 기록을 먼저 저장한다: 동시에 고친 요청은 여기서 version 충돌(409)로 막히고,
+        // 이력 번호 UNIQUE 충돌(500)까지 가지 않는다.
+        MaintenanceRecordRevision revision = MaintenanceRecordRevision.before(record, (int) revisionNo, staff.staffId(),
+            request.reason() == null || request.reason().isBlank() ? null : request.reason().strip());
+        record.edit(newDate, newMileage, newType, newItemId, newInspect, newMemo, newStaffId);
+        records.saveAndFlush(record);
+        revisions.save(revision);
+        if (mileageChanges && newMileage != null) {
+            // 차량의 최근 주행거리보다 클 때만 갱신, 작거나 같으면 그대로(오류 아님, POL-60)
+            vehicleWriter.applyVisit(shopId, record.getVehicleId(), null, newMileage);
+        }
+        return new RecordEditResponse(record.getId(), record.getVehicleId(), record.getVersion());
+    }
+
+    /** 보낸 필드의 형식·범위 (400). 미래 방문일, 주행거리 0~2,000,000, 점검 결과 값. 틀린 필드는 모아서 알린다. */
+    private void validateEditFormat(RecordEditRequest request, LocalDate today) {
+        List<FieldErrorDetail> errors = new ArrayList<>();
+        if (request.recordDate() != null && request.recordDate().isAfter(today)) {
+            errors.add(new FieldErrorDetail("recordDate", "오늘 이전 날짜만 입력할 수 있습니다."));
+        }
+        if (request.mileage() != null && (request.mileage() < 0 || request.mileage() > MAX_MILEAGE)) {
+            errors.add(new FieldErrorDetail("mileage", "0 ~ 2,000,000 사이로 입력해 주세요."));
+        }
+        if (request.inspectResult() != null && !INSPECT_RESULTS.contains(request.inspectResult())) {
+            errors.add(new FieldErrorDetail("inspectResult", "GOOD 또는 CAUTION만 입력할 수 있습니다."));
+        }
+        throwIfAny(errors);
+    }
+
+    /** "바뀐 것 없음" 오류의 필드: 보낸 필드 중 요청 표 순서로 첫째, 하나도 없으면 recordDate (08 37번). */
+    private static String firstSentField(RecordEditRequest r) {
+        if (r.recordDate() != null) {
+            return "recordDate";
+        }
+        if (r.mileage() != null) {
+            return "mileage";
+        }
+        if (r.type() != null) {
+            return "type";
+        }
+        if (r.itemId() != null) {
+            return "itemId";
+        }
+        if (r.inspectResult() != null) {
+            return "inspectResult";
+        }
+        if (r.memo() != null) {
+            return "memo";
+        }
+        return r.mechanicId() != null ? "mechanicId" : "recordDate";
+    }
+
+    /**
+     * API 38 수정 이력 조회 (X14). 남의 정비소 기록은 404. 한 수정의 {@code changes}는 그 수정의 수정 전 값과 다음 수정의
+     * 수정 전 값(마지막은 지금 기록)을 비교해 만든다. 이름은 항목·계정의 현재 이름이고 한 번에 읽는다(N+1 방지).
+     */
+    public RecordRevisionListResponse revisions(long shopId, long recordId) {
+        MaintenanceRecord record = records.findByShopIdAndId(shopId, recordId)
+            .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND));
+        List<MaintenanceRecordRevision> rows = revisions.findByShopIdAndRecordIdOrderByRevisionNoAsc(shopId, recordId);
+        if (rows.isEmpty()) {
+            return new RecordRevisionListResponse(List.of());
+        }
+
+        List<Snapshot> snapshots = new ArrayList<>();
+        rows.forEach(r -> snapshots.add(new Snapshot(r.getPrevRecordDate(), r.getPrevMileage(), r.getPrevRecordType(),
+            r.getPrevServiceItemId(), r.getPrevInspectResult(), r.getPrevMemo(), r.getPrevStaffId())));
+        snapshots.add(new Snapshot(record.getRecordDate(), record.getMileage(), record.getRecordType(),
+            record.getServiceItemId(), record.getInspectResult(), record.getMemo(), record.getStaffId()));
+
+        Set<Long> itemIds = snapshots.stream().map(Snapshot::itemId).collect(Collectors.toSet());
+        Set<Long> staffIds = new HashSet<>();
+        snapshots.forEach(sn -> staffIds.add(sn.staffId()));
+        rows.forEach(r -> staffIds.add(r.getChangedByStaffId()));
+        Map<Long, ItemRef> itemRefs = items.findItems(shopId, itemIds);
+        Map<Long, String> names = staff.findNames(shopId, staffIds);
+
+        List<RecordRevisionListResponse.Item> result = new ArrayList<>();
+        for (int i = 0; i < rows.size(); i++) {
+            MaintenanceRecordRevision r = rows.get(i);
+            result.add(new RecordRevisionListResponse.Item(r.getRevisionNo(), r.getCreatedAt(),
+                new RecordRevisionListResponse.Person(r.getChangedByStaffId(), names.getOrDefault(r.getChangedByStaffId(), "")),
+                r.getReason(), changesBetween(snapshots.get(i), snapshots.get(i + 1), itemRefs, names)));
+        }
+        return new RecordRevisionListResponse(result);
+    }
+
+    /** 08 38번 {@code changes[]}: 바뀐 필드마다 한 항목, recordDate → mileage → type → item → inspectResult → memo → mechanic 순서. */
+    private static List<RecordRevisionListResponse.Change> changesBetween(Snapshot before, Snapshot after,
+                                                                          Map<Long, ItemRef> itemRefs, Map<Long, String> names) {
+        List<RecordRevisionListResponse.Change> out = new ArrayList<>();
+        addIfChanged(out, "recordDate", before.recordDate(), after.recordDate());
+        addIfChanged(out, "mileage", before.mileage(), after.mileage());
+        addIfChanged(out, "type", before.type().name(), after.type().name());
+        if (before.itemId() != after.itemId()) {
+            out.add(new RecordRevisionListResponse.Change("item", itemValue(before.itemId(), itemRefs),
+                itemValue(after.itemId(), itemRefs)));
+        }
+        addIfChanged(out, "inspectResult", before.inspectResult(), after.inspectResult());
+        addIfChanged(out, "memo", before.memo(), after.memo());
+        if (before.staffId() != after.staffId()) {
+            out.add(new RecordRevisionListResponse.Change("mechanic",
+                new RecordRevisionListResponse.Person(before.staffId(), names.getOrDefault(before.staffId(), "")),
+                new RecordRevisionListResponse.Person(after.staffId(), names.getOrDefault(after.staffId(), ""))));
+        }
+        return out;
+    }
+
+    private static void addIfChanged(List<RecordRevisionListResponse.Change> out, String field, Object before, Object after) {
+        if (!Objects.equals(before, after)) {
+            out.add(new RecordRevisionListResponse.Change(field, before, after));
+        }
+    }
+
+    private static RecordRevisionListResponse.ItemValue itemValue(long itemId, Map<Long, ItemRef> itemRefs) {
+        // 근거: 이력의 항목은 복합 FK로 있던 항목이라 항상 존재한다. ""는 방어용이다.
+        return new RecordRevisionListResponse.ItemValue(itemId, itemRefs.containsKey(itemId) ? itemRefs.get(itemId).name() : "");
+    }
+
+    /** 이력 비교용 기록 값 한 벌. */
+    private record Snapshot(LocalDate recordDate, Integer mileage, RecordType type, long itemId, String inspectResult,
+                            String memo, long staffId) {
+    }
+
     /** API 11. 없거나 남의 정비소 차량이면 404(X2)이고, 기록이 없으면 {@code items: []}. */
     public VisitListResponse listVisits(long shopId, long vehicleId, PageLimit limit) {
         customers.getOwnedVehicle(shopId, vehicleId);
@@ -254,7 +441,7 @@ public class MaintenanceService implements MaintenanceReader {
             .toList();
     }
 
-    /** 방문 묶음에 항목 이름·담당 정비사 이름을 붙인다. 항목 이름은 한 번의 조회로 가져온다(건별 호출 금지). */
+    /** 방문 묶음에 항목 이름·담당 정비사 이름·수정 여부를 붙인다. 이름·수정 여부는 한 번의 조회로 가져온다(건별 호출 금지). */
     private List<VisitRef> toRefs(long shopId, List<VisitGroup> visits) {
         if (visits.isEmpty()) {
             return List.of();
@@ -264,18 +451,29 @@ public class MaintenanceService implements MaintenanceReader {
             .map(MaintenanceRecord::getServiceItemId)
             .collect(Collectors.toSet());
         Map<Long, ItemRef> itemRefs = items.findItems(shopId, itemIds);
-        Set<Long> staffIds = visits.stream().map(VisitGroup::staffId).collect(Collectors.toSet());
+        Set<Long> recordIds = visits.stream().flatMap(v -> v.rows().stream())
+            .map(MaintenanceRecord::getId).collect(Collectors.toSet());
+        // 수정 이력이 있는 기록(edited)과 그 기록의 처음 담당. 묶음의 staffName은 담당을 고쳐도 바뀌지 않게 처음 담당으로 정한다(08 11)
+        Map<Long, Long> originalStaff = revisions.findOriginalStaff(shopId, recordIds).stream()
+            .collect(Collectors.toMap(MaintenanceRecordRevisionRepository.OriginalStaff::getRecordId,
+                MaintenanceRecordRevisionRepository.OriginalStaff::getStaffId));
+        // records[].staff는 기록마다의 지금 담당이라 모든 기록의 담당, 묶음 이름은 처음 담당의 이름을 한 번에 읽는다
+        Set<Long> staffIds = visits.stream().flatMap(v -> v.rows().stream())
+            .map(MaintenanceRecord::getStaffId).collect(Collectors.toCollection(HashSet::new));
+        staffIds.addAll(originalStaff.values());
         Map<Long, String> staffNames = staff.findNames(shopId, staffIds);
 
         return visits.stream()
             .map(v -> new VisitRef(v.visitKey(), v.visitDate(), v.mileage(),
                 // 근거: staff_id는 NOT NULL FK라 항상 존재한다. 08 11의 staffName은 필수 문자열이라 방어용 "".
-                staffNames.getOrDefault(v.staffId(), ""),
+                staffNames.getOrDefault(originalStaff.getOrDefault(v.rows().get(0).getId(), v.staffId()), ""),
                 v.rows().stream()
                     .map(r -> new VisitRef.VisitRecord(r.getId(), r.getServiceItemId(),
                         // 근거: (shop_id, service_item_id) 복합 FK로 항목은 항상 존재한다. ""는 방어용이다.
                         itemRefs.containsKey(r.getServiceItemId()) ? itemRefs.get(r.getServiceItemId()).name() : "",
-                        r.getRecordType().name(), r.getRecordDate(), r.getMemo()))
+                        r.getRecordType().name(), r.getRecordDate(), r.getMemo(),
+                        r.getVersion(), originalStaff.containsKey(r.getId()),
+                        new VisitRef.RecordStaff(r.getStaffId(), staffNames.getOrDefault(r.getStaffId(), ""))))
                     .toList()))
             .toList();
     }

@@ -24,6 +24,7 @@ import com.wanted.chagok.domain.maintenance.dto.VisitSaveResponse;
 import com.wanted.chagok.domain.maintenance.entity.MaintenanceRecord;
 import com.wanted.chagok.domain.maintenance.entity.RecordType;
 import com.wanted.chagok.domain.maintenance.repository.MaintenanceRecordRepository;
+import com.wanted.chagok.domain.maintenance.repository.MaintenanceRecordRevisionRepository;
 import com.wanted.chagok.domain.maintenance.service.MaintenanceService;
 import com.wanted.chagok.global.error.BusinessException;
 import com.wanted.chagok.global.error.ErrorCode;
@@ -59,6 +60,9 @@ class MaintenanceSaveServiceTest {
     private MaintenanceRecordRepository repository;
 
     @Mock
+    private MaintenanceRecordRevisionRepository revisions;
+
+    @Mock
     private CustomerReader customers;
 
     @Mock
@@ -72,7 +76,7 @@ class MaintenanceSaveServiceTest {
 
     private MaintenanceService service() {
         Clock clock = Clock.fixed(Instant.parse("2026-11-25T03:00:00Z"), ZoneId.of("Asia/Seoul"));
-        return new MaintenanceService(repository, customers, vehicleWriter, items, staff, clock);
+        return new MaintenanceService(repository, revisions, customers, vehicleWriter, items, staff, clock);
     }
 
     private void ownedVehicle(Integer modelYear, Integer latestMileage) {

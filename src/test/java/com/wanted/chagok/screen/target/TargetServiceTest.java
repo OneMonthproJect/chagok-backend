@@ -71,7 +71,14 @@ class TargetServiceTest {
     }
 
     private static MaintenanceRecordRef record(long recordId, long vehicleId, long itemId, LocalDate date) {
-        return new MaintenanceRecordRef(recordId, vehicleId, itemId, date, null, "REPLACE", true, date.atStartOfDay(), null);
+        return new MaintenanceRecordRef(recordId, vehicleId, itemId, date, null, "REPLACE", true, date.atStartOfDay(), null, null);
+    }
+
+    /** 주기를 다시 시작하지 않는 기록(거절·점검). inspectResult는 점검일 때만 값이 있다. */
+    private static MaintenanceRecordRef note(long recordId, long vehicleId, long itemId, LocalDate date, String type,
+                                             String inspectResult, String memo) {
+        return new MaintenanceRecordRef(recordId, vehicleId, itemId, date, null, type, false, date.atStartOfDay(), memo,
+            inspectResult);
     }
 
     private void stub(List<VehicleSummary> vehicles, Map<Long, List<MaintenanceRecordRef>> records,
@@ -146,6 +153,55 @@ class TargetServiceTest {
             .containsExactly(ENGINE_OIL, BRAKE_PAD);
         assertThat(response.items().get(0).targetItems()).extracting(TargetListResponse.TargetItem::status)
             .containsExactly(ItemStatus.DUE, ItemStatus.SOON);
+    }
+
+    @Test
+    @DisplayName("T14 도래 항목에 거절이 가장 최근이면 lastDecline이 붙고, 상태·다음 정비일·baseDate는 거절 없이 계산한 값과 같다 (10과 같은 판정)")
+    void t14_declineIsAttachedWithoutChangingStatus() {
+        stub(List.of(vehicle(1, "11바0006", "김민수")), Map.of(
+            1L, List.of(record(1, 1, ENGINE_OIL, LocalDate.of(2026, 3, 24)),                         // 다음 9-24: 도래
+                note(2, 1, ENGINE_OIL, LocalDate.of(2026, 10, 24), "DECLINE", null, "다음에 하겠다고 함"))),
+            Map.of());
+
+        TargetListResponse.TargetItem item = service().getTargets(SHOP).items().get(0).targetItems().get(0);
+
+        assertThat(item.lastDecline().date()).isEqualTo(LocalDate.of(2026, 10, 24));
+        assertThat(item.lastDecline().memo()).isEqualTo("다음에 하겠다고 함");
+        assertThat(item.lastCaution()).isNull();
+        assertThat(item.status()).isEqualTo(ItemStatus.DUE);
+        assertThat(item.nextDueDate()).isEqualTo(LocalDate.of(2026, 9, 24));
+        assertThat(item.baseDate()).isEqualTo(LocalDate.of(2026, 3, 24));
+    }
+
+    @Test
+    @DisplayName("T15 임박 항목의 가장 최근 기록이 점검·주의이면 lastCaution이 붙고 lastDecline은 null. 점검·양호는 표시 없음")
+    void t15_cautionIsAttachedAndGoodIsNot() {
+        stub(List.of(vehicle(1, "12가0001", "김민수"), vehicle(2, "34나0002", "이영희")), Map.of(
+            1L, List.of(record(1, 1, BRAKE_PAD, LocalDate.of(2025, 12, 20)),                        // 다음 12-20: 임박
+                note(2, 1, BRAKE_PAD, LocalDate.of(2026, 10, 24), "INSPECT", "CAUTION", "패드 마모")),
+            2L, List.of(record(3, 2, BRAKE_PAD, LocalDate.of(2025, 12, 20)),
+                note(4, 2, BRAKE_PAD, LocalDate.of(2026, 10, 24), "INSPECT", "GOOD", "이상 없음"))),
+            Map.of());
+
+        TargetListResponse response = service().getTargets(SHOP);
+
+        TargetListResponse.TargetItem caution = response.items().get(0).targetItems().get(0);
+        assertThat(caution.status()).isEqualTo(ItemStatus.SOON);
+        assertThat(caution.lastCaution().date()).isEqualTo(LocalDate.of(2026, 10, 24));
+        assertThat(caution.lastCaution().memo()).isEqualTo("패드 마모");
+        assertThat(caution.lastDecline()).isNull();
+        TargetListResponse.TargetItem good = response.items().get(1).targetItems().get(0);
+        assertThat(good.lastCaution()).isNull();
+        assertThat(good.lastDecline()).isNull();
+    }
+
+    @Test
+    @DisplayName("거절만 있는 항목(미확인)은 대상이 아니라서 거절 표시가 있어도 목록에 오르지 않는다")
+    void declineOnlyItemIsNotATarget() {
+        stub(List.of(vehicle(1, "12가0001", "김민수")),
+            Map.of(1L, List.of(note(1, 1, ENGINE_OIL, LocalDate.of(2026, 10, 24), "DECLINE", null, null))), Map.of());
+
+        assertThat(service().getTargets(SHOP).items()).isEmpty();
     }
 
     @Test

@@ -50,7 +50,7 @@ class HomeServiceTest {
     private static TargetListResponse.Item target(long customerId, long vehicleId, boolean reserved) {
         return new TargetListResponse.Item(customerId, "고객" + customerId, "010-0000-000" + customerId, vehicleId,
             "12가000" + vehicleId,
-            List.of(new TargetListResponse.TargetItem(1L, "엔진오일", ItemStatus.DUE, TODAY.minusDays(3), TODAY.minusMonths(6))),
+            List.of(new TargetListResponse.TargetItem(1L, "엔진오일", ItemStatus.DUE, TODAY.minusDays(3), TODAY.minusMonths(6), null, null)),
             reserved ? new TargetListResponse.ActiveReservation(100 + vehicleId, TODAY.plusDays(2).atTime(10, 0)) : null);
     }
 

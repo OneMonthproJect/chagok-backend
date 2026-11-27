@@ -66,7 +66,7 @@ class CustomerDetailServiceTest {
 
     private static MaintenanceRecordRef replace(long id, long vehicleId, long itemId, LocalDate date) {
         return new MaintenanceRecordRef(id, vehicleId, itemId, date, null, "REPLACE", true,
-            LocalDateTime.of(date, LocalTime.NOON), null);
+            LocalDateTime.of(date, LocalTime.NOON), null, null);
     }
 
     private void givenCustomer(VehicleRef... vehicles) {

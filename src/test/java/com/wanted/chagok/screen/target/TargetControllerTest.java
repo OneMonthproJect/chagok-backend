@@ -7,6 +7,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.wanted.chagok.domain.cycle.api.CycleNote;
 import com.wanted.chagok.domain.cycle.api.ItemStatus;
 import com.wanted.chagok.global.auth.CurrentStaff;
 import com.wanted.chagok.global.auth.LoginStaff;
@@ -55,16 +56,17 @@ class TargetControllerTest {
         .build();
 
     @Test
-    @DisplayName("14 성공: 08 응답 모양, shopId는 토큰의 값, 예약 있음은 객체·없음은 null, P0-핵심에는 lastDecline·lastCaution이 없다")
+    @DisplayName("14 성공: 08 응답 모양, shopId는 토큰의 값, 예약 있음은 객체·없음은 null, targetItems의 lastDecline·lastCaution은 값이 있으면 { date, memo }·없으면 null")
     void success() throws Exception {
         when(service.getTargets(3L)).thenReturn(new TargetListResponse(LocalDate.of(2026, 11, 24), List.of(
             new TargetListResponse.Item(2L, "이영희", "010-0000-0002", 2L, "34나0002",
                 List.of(new TargetListResponse.TargetItem(1L, "엔진오일", ItemStatus.DUE,
-                    LocalDate.of(2026, 11, 14), LocalDate.of(2026, 5, 14))),
+                    LocalDate.of(2026, 11, 14), LocalDate.of(2026, 5, 14),
+                    new CycleNote(LocalDate.of(2026, 10, 24), "다음에 하겠다고 함"), null)),
                 new TargetListResponse.ActiveReservation(3L, LocalDateTime.of(2026, 11, 26, 10, 0))),
             new TargetListResponse.Item(1L, "김민수", "010-0000-0001", 1L, "12가0001",
                 List.of(new TargetListResponse.TargetItem(1L, "엔진오일", ItemStatus.DUE,
-                    LocalDate.of(2026, 11, 17), LocalDate.of(2026, 5, 17))),
+                    LocalDate.of(2026, 11, 17), LocalDate.of(2026, 5, 17), null, null)),
                 null))));
 
         mvc.perform(get("/api/targets"))
@@ -82,7 +84,11 @@ class TargetControllerTest {
             .andExpect(jsonPath("$.data.items[0].targetItems[0].status").value("DUE"))
             .andExpect(jsonPath("$.data.items[0].targetItems[0].nextDueDate").value("2026-11-14"))
             .andExpect(jsonPath("$.data.items[0].targetItems[0].baseDate").value("2026-05-14"))
-            .andExpect(jsonPath("$.data.items[0].targetItems[0].lastDecline").doesNotExist())
+            .andExpect(jsonPath("$.data.items[0].targetItems[0].lastDecline.date").value("2026-10-24"))
+            .andExpect(jsonPath("$.data.items[0].targetItems[0].lastDecline.memo").value("다음에 하겠다고 함"))
+            .andExpect(jsonPath("$.data.items[0].targetItems[0].lastCaution").isEmpty())
+            .andExpect(jsonPath("$.data.items[1].targetItems[0].lastDecline").isEmpty())
+            .andExpect(jsonPath("$.data.items[1].targetItems[0].lastCaution").isEmpty())
             .andExpect(jsonPath("$.data.items[0].activeReservation.reservationId").value(3))
             .andExpect(jsonPath("$.data.items[0].activeReservation.reservedAt").value("2026-11-26T10:00:00"))
             .andExpect(jsonPath("$.data.items[1].activeReservation").isEmpty());

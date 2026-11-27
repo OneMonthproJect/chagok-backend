@@ -192,6 +192,20 @@ class GlobalExceptionHandlerTest {
     }
 
     @Test
+    @DisplayName("forHttpStatus 표: 401·403·404는 그 코드, 그 밖 4xx(405·431 포함)와 3xx·2xx는 INVALID_INPUT, 5xx는 INTERNAL_ERROR (/error와 ResponseStatusException이 같은 규칙)")
+    void forHttpStatusTable() {
+        assertThat(GlobalExceptionHandler.forHttpStatus(401)).isEqualTo(ErrorCode.AUTH_REQUIRED);
+        assertThat(GlobalExceptionHandler.forHttpStatus(403)).isEqualTo(ErrorCode.FORBIDDEN);
+        assertThat(GlobalExceptionHandler.forHttpStatus(404)).isEqualTo(ErrorCode.NOT_FOUND);
+        for (int status : new int[] {200, 302, 405, 431}) {
+            assertThat(GlobalExceptionHandler.forHttpStatus(status)).as("status %d", status).isEqualTo(ErrorCode.INVALID_INPUT);
+        }
+        for (int status : new int[] {500, 503}) {
+            assertThat(GlobalExceptionHandler.forHttpStatus(status)).as("status %d", status).isEqualTo(ErrorCode.INTERNAL_ERROR);
+        }
+    }
+
+    @Test
     @DisplayName("없는 경로 → 404 NOT_FOUND")
     void unknownPath() throws Exception {
         mvc.perform(get("/probe/nothing-here"))

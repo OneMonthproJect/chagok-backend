@@ -120,12 +120,13 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(ResponseStatusException.class)
     public ResponseEntity<ApiResponse<Void>> handleResponseStatus(ResponseStatusException e) {
         int status = e.getStatusCode().value();
-        if (status >= 500) {
+        ErrorCode code = forHttpStatus(status);
+        if (code == ErrorCode.INTERNAL_ERROR) {
             log.error("response status {}", status, e);
-            return respond(ErrorCode.INTERNAL_ERROR, List.of(), null);
+        } else {
+            log.debug("response status {}", status);
         }
-        log.debug("response status {}", status);
-        return respond(forHttpStatus(status), List.of(), null);
+        return respond(code, List.of(), null);
     }
 
     @ExceptionHandler(Exception.class)

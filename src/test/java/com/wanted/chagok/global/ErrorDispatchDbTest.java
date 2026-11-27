@@ -69,12 +69,25 @@ class ErrorDispatchDbTest {
     }
 
     @Test
+    @DisplayName("ERROR 디스패치를 열어도 원 요청의 인가는 가려지지 않는다: 토큰 없음 401 AUTH_REQUIRED, 서비스 관리자 토큰으로 /api 403 FORBIDDEN")
+    void authorizationOfOriginalRequestIsNotMasked() throws Exception {
+        HttpResponse<String> anonymous = send("GET", "/api/vehicles", "application/json", null);
+        String adminToken = "Bearer " + TestJwts.sign(secret, TestJwts.admin(1, Instant.now().plusSeconds(3_600)));
+        HttpResponse<String> admin = send("GET", "/api/vehicles", "application/json", adminToken);
+
+        assertThat(anonymous.statusCode()).isEqualTo(401);
+        assertThat(anonymous.body()).contains("\"AUTH_REQUIRED\"");
+        assertThat(admin.statusCode()).isEqualTo(403);
+        assertThat(admin.body()).contains("\"FORBIDDEN\"");
+    }
+
+    @Test
     @DisplayName("/error를 직접 부르는 요청은 막힌다 (ERROR 디스패치만 허용, 기본 거부 원칙 유지)")
     void directErrorPathStaysDenied() throws Exception {
         HttpResponse<String> anonymous = send("GET", "/error", null, null);
         HttpResponse<String> authenticated = send("GET", "/error", "application/json", ownerToken());
 
-        assertThat(anonymous.statusCode()).isIn(401, 403);
+        assertThat(anonymous.statusCode()).isEqualTo(401);
         assertThat(authenticated.statusCode()).isEqualTo(403);
     }
 }

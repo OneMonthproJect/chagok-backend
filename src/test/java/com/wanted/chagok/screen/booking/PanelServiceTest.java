@@ -227,8 +227,48 @@ class PanelServiceTest {
         verifyNoInteractions(maintenanceReader, itemReader);
     }
 
+    @Test
+    @DisplayName("T14·T15 항목 상태에 lastDecline·lastCaution이 10과 같은 판정으로 붙고 상태는 그대로이며, 해당 없으면 둘 다 null")
+    void itemStatusesCarryDeclineAndCautionNotes() {
+        when(reservationReader.getOwnedDetail(SHOP, RESERVATION)).thenReturn(detail(List.of()));
+        stubVehicleAndCustomer();
+        when(itemReader.findActiveItems(SHOP)).thenReturn(List.of(
+            item(1L, "ENGINE_OIL", "엔진오일", 6, 1), item(4L, "BRAKE_PAD", "브레이크패드", 12, 2),
+            item(6L, "BATTERY", "배터리", 36, 3)));
+        when(maintenanceReader.findRecordsByVehicle(SHOP, List.of(VEHICLE))).thenReturn(Map.of(VEHICLE, List.of(
+            record(1, 1L, LocalDate.of(2026, 3, 24)),                                              // 다음 9-24: 도래
+            note(2, 1L, LocalDate.of(2026, 10, 24), "DECLINE", null, "다음에 하겠다고 함"),
+            record(3, 4L, LocalDate.of(2026, 9, 24)),                                              // 다음 2027-09-24: 여유
+            note(4, 4L, LocalDate.of(2026, 10, 30), "INSPECT", "CAUTION", "패드 마모"))));         // 배터리: 기록 없음
+
+        List<PanelResponse.ItemStatusBlock> blocks = service().getPanel(SHOP, RESERVATION).itemStatuses();
+
+        PanelResponse.ItemStatusBlock oil = blocks.get(0);
+        assertThat(oil.status()).isEqualTo(ItemStatus.DUE);
+        assertThat(oil.baseRecord().date()).isEqualTo(LocalDate.of(2026, 3, 24));
+        assertThat(oil.lastDecline().date()).isEqualTo(LocalDate.of(2026, 10, 24));
+        assertThat(oil.lastDecline().memo()).isEqualTo("다음에 하겠다고 함");
+        assertThat(oil.lastCaution()).isNull();
+        PanelResponse.ItemStatusBlock brake = blocks.get(1);
+        assertThat(brake.status()).isEqualTo(ItemStatus.AHEAD);
+        assertThat(brake.lastCaution().date()).isEqualTo(LocalDate.of(2026, 10, 30));
+        assertThat(brake.lastCaution().memo()).isEqualTo("패드 마모");
+        assertThat(brake.lastDecline()).isNull();
+        PanelResponse.ItemStatusBlock battery = blocks.get(2);
+        assertThat(battery.status()).isEqualTo(ItemStatus.UNKNOWN);
+        assertThat(battery.lastDecline()).isNull();
+        assertThat(battery.lastCaution()).isNull();
+    }
+
+    /** 주기를 다시 시작하지 않는 기록(거절·점검). inspectResult는 점검일 때만 값이 있다. */
+    private static MaintenanceRecordRef note(long id, long itemId, LocalDate date, String type, String inspectResult,
+                                             String memo) {
+        return new MaintenanceRecordRef(id, VEHICLE, itemId, date, null, type, false, date.atStartOfDay(), memo,
+            inspectResult);
+    }
+
     private static MaintenanceRecordRef record(long id, long itemId, LocalDate date) {
         return new MaintenanceRecordRef(id, VEHICLE, itemId, date, null, "REPLACE", true,
-            date.atStartOfDay(), null);
+            date.atStartOfDay(), null, null);
     }
 }

@@ -1,5 +1,6 @@
 package com.wanted.chagok.screen.visit;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -7,6 +8,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.wanted.chagok.domain.cycle.api.BaseRecord;
+import com.wanted.chagok.domain.cycle.api.CycleNote;
 import com.wanted.chagok.domain.cycle.api.DueReason;
 import com.wanted.chagok.domain.cycle.api.ItemStatus;
 import com.wanted.chagok.global.auth.TestJwts;
@@ -19,6 +21,7 @@ import com.wanted.chagok.global.error.GlobalExceptionHandler;
 import com.wanted.chagok.screen.visit.controller.ItemStatusController;
 import com.wanted.chagok.screen.visit.dto.ItemStatusResponse;
 import com.wanted.chagok.screen.visit.service.ItemStatusService;
+import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
@@ -55,8 +58,9 @@ class ItemStatusControllerTest {
         when(itemStatusService.getItemStatus(1L, 4L, 55_000)).thenReturn(
             new ItemStatusResponse(4, LocalDate.of(2026, 11, 24), 55_000, List.of(
                 new ItemStatusResponse.Item(1, "ENGINE_OIL", "엔진오일", ItemStatus.DUE, DueReason.KM,
-                    new BaseRecord(LocalDate.of(2026, 9, 24), 45_000, "REPLACE"), LocalDate.of(2027, 3, 24), 55_000),
-                new ItemStatusResponse.Item(2, "AIR_CLEANER", "에어클리너", ItemStatus.UNKNOWN, null, null, null, null))));
+                    new BaseRecord(LocalDate.of(2026, 9, 24), 45_000, "REPLACE"), LocalDate.of(2027, 3, 24), 55_000, null, null),
+                new ItemStatusResponse.Item(2, "AIR_CLEANER", "에어클리너", ItemStatus.UNKNOWN, null, null, null, null,
+                    null, null))));
 
         mvc.perform(get("/api/vehicles/4/item-status").param("mileage", "55000")
                 .header("Authorization", token(1, "MECHANIC")))
@@ -73,6 +77,33 @@ class ItemStatusControllerTest {
             .andExpect(jsonPath("$.data.items[0].nextDueMileage").value(55000))
             .andExpect(jsonPath("$.data.items[1].status").value("UNKNOWN"))
             .andExpect(jsonPath("$.data.items[1].baseRecord").isEmpty());
+    }
+
+    @Test
+    @DisplayName("08 10 P0-나머지 예시: lastDecline { date, memo }·lastCaution null이 nextDueMileage 뒤에 같은 이름·순서로 나온다")
+    void includesDeclineAndCautionLikeSpecExample() throws Exception {
+        when(itemStatusService.getItemStatus(1L, 6L, null)).thenReturn(
+            new ItemStatusResponse(6, LocalDate.of(2026, 11, 24), null, List.of(
+                new ItemStatusResponse.Item(1, "ENGINE_OIL", "엔진오일", ItemStatus.DUE, DueReason.DATE,
+                    new BaseRecord(LocalDate.of(2026, 3, 24), null, "REPLACE"), LocalDate.of(2026, 9, 24), null,
+                    new CycleNote(LocalDate.of(2026, 10, 24), null), null),
+                new ItemStatusResponse.Item(2, "BRAKE_PAD", "브레이크패드", ItemStatus.AHEAD, null,
+                    new BaseRecord(LocalDate.of(2026, 9, 24), null, "REPLACE"), LocalDate.of(2027, 9, 24), null,
+                    null, new CycleNote(LocalDate.of(2026, 10, 30), "패드 마모")))));
+
+        String body = mvc.perform(get("/api/vehicles/6/item-status").header("Authorization", token(1, "OWNER")))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.items[0].lastDecline.date").value("2026-10-24"))
+            .andExpect(jsonPath("$.data.items[0].lastDecline.memo").isEmpty())
+            .andExpect(jsonPath("$.data.items[0].lastCaution").isEmpty())
+            .andExpect(jsonPath("$.data.items[1].lastDecline").isEmpty())
+            .andExpect(jsonPath("$.data.items[1].lastCaution.date").value("2026-10-30"))
+            .andExpect(jsonPath("$.data.items[1].lastCaution.memo").value("패드 마모"))
+            .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+
+        // 08 예시의 필드 순서: nextDueMileage → lastDecline → lastCaution
+        assertThat(body.indexOf("\"nextDueMileage\"")).isLessThan(body.indexOf("\"lastDecline\""));
+        assertThat(body.indexOf("\"lastDecline\"")).isLessThan(body.indexOf("\"lastCaution\""));
     }
 
     @Test

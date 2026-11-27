@@ -60,11 +60,94 @@ class ItemStatusServiceTest {
 
     private static MaintenanceRecordRef replace(long id, long itemId, LocalDate date, Integer mileage) {
         return new MaintenanceRecordRef(id, VEHICLE, itemId, date, mileage, "REPLACE", true,
-            LocalDateTime.of(date, LocalTime.NOON), null);
+            LocalDateTime.of(date, LocalTime.NOON), null, null);
     }
 
     private static ItemStatusResponse.Item item(ItemStatusResponse r, long itemId) {
         return r.items().stream().filter(i -> i.itemId() == itemId).findFirst().orElseThrow();
+    }
+
+    /** 주기를 다시 시작하지 않는 기록(거절·점검). inspectResult는 점검일 때만 값이 있다. */
+    private static MaintenanceRecordRef note(long id, long itemId, LocalDate date, String type, String inspectResult,
+                                             String memo) {
+        return new MaintenanceRecordRef(id, VEHICLE, itemId, date, null, type, false,
+            LocalDateTime.of(date, LocalTime.NOON), memo, inspectResult);
+    }
+
+    @Test
+    @DisplayName("T14 교체 뒤 거절이 가장 최근이면 lastDecline(날짜·메모), lastCaution은 null, 상태는 그대로")
+    void t14_declineAfterReplaceShowsLastDecline() {
+        givenItems(OIL);
+        givenRecords(replace(1, 1, LocalDate.of(2026, 5, 24), null),
+            note(2, 1, LocalDate.of(2026, 10, 24), "DECLINE", null, "다음에 하겠다고 함"));
+
+        ItemStatusResponse.Item i = item(service.getItemStatus(SHOP, VEHICLE, null), 1);
+
+        assertThat(i.lastDecline().date()).isEqualTo(LocalDate.of(2026, 10, 24));
+        assertThat(i.lastDecline().memo()).isEqualTo("다음에 하겠다고 함");
+        assertThat(i.lastCaution()).isNull();
+        // 꼬리표는 상태를 바꾸지 않는다: 교체 6개월 → 오늘(11-24) 도래, 기준 기록은 거절이 아니라 교체
+        assertThat(i.status()).isEqualTo(ItemStatus.DUE);
+        assertThat(i.baseRecord().date()).isEqualTo(LocalDate.of(2026, 5, 24));
+    }
+
+    @Test
+    @DisplayName("T14 거절만 있어도(기준 기록 없음) lastDecline이 붙고 상태는 미확인·baseRecord는 null (08 10)")
+    void t14_declineOnlyStillShowsLastDecline() {
+        givenItems(OIL);
+        givenRecords(note(1, 1, LocalDate.of(2026, 10, 24), "DECLINE", null, null));
+
+        ItemStatusResponse.Item i = item(service.getItemStatus(SHOP, VEHICLE, null), 1);
+
+        assertThat(i.lastDecline().date()).isEqualTo(LocalDate.of(2026, 10, 24));
+        assertThat(i.lastDecline().memo()).isNull();
+        assertThat(i.status()).isEqualTo(ItemStatus.UNKNOWN);
+        assertThat(i.baseRecord()).isNull();
+    }
+
+    @Test
+    @DisplayName("T14 거절 뒤에 같은 항목이 다시 기록되면(교체) 표시가 사라진다")
+    void t14_laterRecordClearsDecline() {
+        givenItems(OIL);
+        givenRecords(replace(1, 1, LocalDate.of(2026, 5, 24), null),
+            note(2, 1, LocalDate.of(2026, 10, 24), "DECLINE", null, null),
+            replace(3, 1, LocalDate.of(2026, 11, 20), null));
+
+        ItemStatusResponse.Item i = item(service.getItemStatus(SHOP, VEHICLE, null), 1);
+
+        assertThat(i.lastDecline()).isNull();
+        assertThat(i.lastCaution()).isNull();
+    }
+
+    @Test
+    @DisplayName("T15 가장 최근 기록이 점검·주의이면 lastCaution(날짜·메모), lastDecline은 null, 상태는 그대로")
+    void t15_inspectCautionShowsLastCaution() {
+        givenItems(OIL);
+        givenRecords(replace(1, 1, LocalDate.of(2026, 9, 24), null),
+            note(2, 1, LocalDate.of(2026, 10, 24), "INSPECT", "CAUTION", "앞 타이어 마모"));
+
+        ItemStatusResponse.Item i = item(service.getItemStatus(SHOP, VEHICLE, null), 1);
+
+        assertThat(i.lastCaution().date()).isEqualTo(LocalDate.of(2026, 10, 24));
+        assertThat(i.lastCaution().memo()).isEqualTo("앞 타이어 마모");
+        assertThat(i.lastDecline()).isNull();
+        assertThat(i.status()).isEqualTo(ItemStatus.AHEAD);
+        assertThat(i.baseRecord().date()).isEqualTo(LocalDate.of(2026, 9, 24));
+    }
+
+    @Test
+    @DisplayName("T15 점검·양호이면 표시 없음. 기록이 없는 항목도 두 값 모두 null")
+    void t15_inspectGoodAndNoRecordsShowNothing() {
+        givenItems(OIL, AIR);
+        givenRecords(replace(1, 1, LocalDate.of(2026, 9, 24), null),
+            note(2, 1, LocalDate.of(2026, 10, 24), "INSPECT", "GOOD", "이상 없음"));
+
+        ItemStatusResponse r = service.getItemStatus(SHOP, VEHICLE, null);
+
+        assertThat(item(r, 1).lastDecline()).isNull();
+        assertThat(item(r, 1).lastCaution()).isNull();
+        assertThat(item(r, 2).lastDecline()).isNull();
+        assertThat(item(r, 2).lastCaution()).isNull();
     }
 
     @Test

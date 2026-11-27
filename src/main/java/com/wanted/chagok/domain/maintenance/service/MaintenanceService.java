@@ -424,7 +424,8 @@ public class MaintenanceService implements MaintenanceReader {
 
     private static MaintenanceRecordRef toRecordRef(MaintenanceRecord r) {
         return new MaintenanceRecordRef(r.getId(), r.getVehicleId(), r.getServiceItemId(), r.getRecordDate(),
-            r.getMileage(), r.getRecordType().name(), r.getRecordType().resetsCycle(), r.getCreatedAt(), r.getMemo());
+            r.getMileage(), r.getRecordType().name(), r.getRecordType().resetsCycle(), r.getCreatedAt(), r.getMemo(),
+            r.getInspectResult());
     }
 
     /** {@code visit_key}로 묶어 최신순: visitDate 내림차순, 같으면 나중에 저장한 방문 먼저 (08 11). */

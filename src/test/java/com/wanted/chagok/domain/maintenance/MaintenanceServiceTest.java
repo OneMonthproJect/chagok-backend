@@ -223,6 +223,23 @@ class MaintenanceServiceTest {
     }
 
     @Test
+    @DisplayName("findRecordsByVehicle: 점검 결과(inspectResult)와 메모를 그대로 싣는다 — 거절·주의 꼬리표 판정의 재료 (#110)")
+    void findRecordsByVehicle_carriesInspectResultAndMemo() {
+        MaintenanceRecord inspect = record(2, "b", 1, "2026-02-01", null, RecordType.INSPECT, "2026-02-01T10:00:00");
+        ReflectionTestUtils.setField(inspect, "inspectResult", "CAUTION");
+        ReflectionTestUtils.setField(inspect, "memo", "앞 타이어 마모");
+        MaintenanceRecord replace = record(1, "a", 1, "2026-01-01", 1_000, RecordType.REPLACE, "2026-01-01T10:00:00");
+        when(repository.findByShopIdAndVehicleIdIn(SHOP, Set.of(VEHICLE))).thenReturn(List.of(inspect, replace));
+
+        List<MaintenanceRecordRef> refs = service().findRecordsByVehicle(SHOP, List.of(VEHICLE)).get(VEHICLE);
+
+        assertThat(refs).extracting(MaintenanceRecordRef::inspectResult).containsExactly(null, "CAUTION");
+        assertThat(refs).extracting(MaintenanceRecordRef::memo).containsExactly(null, "앞 타이어 마모");
+        assertThat(refs.get(1).isInspectCaution()).isTrue();
+        assertThat(refs.get(0).isInspectCaution()).isFalse();
+    }
+
+    @Test
     @DisplayName("countVisits: 서로 다른 visit_key 수, 외부 기록만 있는 방문은 제외 (POL-45)")
     void countVisits_excludesExternalOnly() {
         when(repository.findByShopIdAndVehicleId(SHOP, VEHICLE)).thenReturn(List.of(

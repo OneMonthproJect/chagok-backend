@@ -2,6 +2,9 @@ package com.wanted.chagok.screen.target.service;
 
 import com.wanted.chagok.domain.customer.api.CustomerReader;
 import com.wanted.chagok.domain.customer.api.VehicleSummary;
+import com.wanted.chagok.domain.cycle.api.CycleNoteKind;
+import com.wanted.chagok.domain.cycle.api.CycleNoteRecord;
+import com.wanted.chagok.domain.cycle.api.CycleNotes;
 import com.wanted.chagok.domain.cycle.api.CycleRecord;
 import com.wanted.chagok.domain.cycle.api.CycleRule;
 import com.wanted.chagok.domain.cycle.api.ItemCycleCalculator;
@@ -89,21 +92,23 @@ public class TargetService {
     /** 도래·임박 항목이 하나도 없으면(미확인·여유뿐) 대상이 아니므로 null. */
     private Row toRow(VehicleSummary vehicle, List<ItemRef> items, List<MaintenanceRecordRef> records,
                       ReservationRef activeReservation, LocalDate today) {
-        Map<Long, List<CycleRecord>> recordsByItem = records.stream()
-            .collect(Collectors.groupingBy(MaintenanceRecordRef::itemId,
-                Collectors.mapping(TargetService::toCycleRecord, Collectors.toList())));
+        Map<Long, List<MaintenanceRecordRef>> recordsByItem = records.stream()
+            .collect(Collectors.groupingBy(MaintenanceRecordRef::itemId));
 
         List<TargetListResponse.TargetItem> targetItems = new ArrayList<>();
         boolean hasDue = false;
         LocalDate earliestDueDate = null;
         for (ItemRef item : items) {
+            List<MaintenanceRecordRef> itemRecords = recordsByItem.getOrDefault(item.itemId(), List.of());
             ItemCycleResult result = calculator.calculate(new CycleRule(item.cycleMonths(), item.cycleKm()),
-                recordsByItem.getOrDefault(item.itemId(), List.of()), today, null);
+                itemRecords.stream().map(TargetService::toCycleRecord).toList(), today, null);
             if (result.status() != ItemStatus.DUE && result.status() != ItemStatus.SOON) {
                 continue;
             }
+            // 꼬리표는 상태를 바꾸지 않는다. 대상 항목에만 10번과 같은 판정(cycle)을 그대로 싣는다 (04 F-CYC-02)
+            CycleNotes notes = calculator.judgeNotes(itemRecords.stream().map(TargetService::toNoteRecord).toList());
             targetItems.add(new TargetListResponse.TargetItem(item.itemId(), item.name(), result.status(),
-                result.nextDueDate(), result.baseRecord().date()));
+                result.nextDueDate(), result.baseRecord().date(), notes.lastDecline(), notes.lastCaution()));
             hasDue |= result.status() == ItemStatus.DUE;
             if (earliestDueDate == null || result.nextDueDate().isBefore(earliestDueDate)) {
                 earliestDueDate = result.nextDueDate();
@@ -121,6 +126,13 @@ public class TargetService {
 
     private static CycleRecord toCycleRecord(MaintenanceRecordRef r) {
         return new CycleRecord(r.date(), r.mileage(), r.resetsCycle(), r.createdAt(), r.recordId(), r.type());
+    }
+
+    /** 꼬리표 판정 재료. 거절·점검 주의 여부는 maintenance가 알려 주고(api 메서드), 판정은 cycle이 한다. */
+    private static CycleNoteRecord toNoteRecord(MaintenanceRecordRef r) {
+        CycleNoteKind kind = r.isDecline() ? CycleNoteKind.DECLINE
+            : r.isInspectCaution() ? CycleNoteKind.INSPECT_CAUTION : CycleNoteKind.OTHER;
+        return new CycleNoteRecord(r.date(), r.createdAt(), r.recordId(), r.resetsCycle(), kind, r.memo());
     }
 
     private record Row(TargetListResponse.Item item, boolean hasDue, LocalDate earliestDueDate) {

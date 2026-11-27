@@ -3,6 +3,9 @@ package com.wanted.chagok.screen.booking.service;
 import com.wanted.chagok.domain.customer.api.CustomerReader;
 import com.wanted.chagok.domain.customer.api.VehicleRef;
 import com.wanted.chagok.domain.customer.api.VehicleSummary;
+import com.wanted.chagok.domain.cycle.api.CycleNoteKind;
+import com.wanted.chagok.domain.cycle.api.CycleNoteRecord;
+import com.wanted.chagok.domain.cycle.api.CycleNotes;
 import com.wanted.chagok.domain.cycle.api.CycleRecord;
 import com.wanted.chagok.domain.cycle.api.CycleRule;
 import com.wanted.chagok.domain.cycle.api.ItemCycleCalculator;
@@ -101,23 +104,32 @@ public class PanelService {
     private List<PanelResponse.ItemStatusBlock> itemStatuses(long shopId, long vehicleId, Set<Long> purposeItemIds) {
         LocalDate today = LocalDate.now(clock);
         List<ItemRef> items = itemReader.findActiveItems(shopId);
-        Map<Long, List<CycleRecord>> recordsByItem = maintenanceReader
+        Map<Long, List<MaintenanceRecordRef>> recordsByItem = maintenanceReader
             .findRecordsByVehicle(shopId, List.of(vehicleId))
             .getOrDefault(vehicleId, List.<MaintenanceRecordRef>of()).stream()
-            .collect(Collectors.groupingBy(MaintenanceRecordRef::itemId,
-                Collectors.mapping(PanelService::toCycleRecord, Collectors.toList())));
+            .collect(Collectors.groupingBy(MaintenanceRecordRef::itemId));
         return items.stream()
             .map(item -> {
+                List<MaintenanceRecordRef> itemRecords = recordsByItem.getOrDefault(item.itemId(), List.of());
                 ItemCycleResult r = calculator.calculate(new CycleRule(item.cycleMonths(), item.cycleKm()),
-                    recordsByItem.getOrDefault(item.itemId(), List.of()), today, null);
+                    itemRecords.stream().map(PanelService::toCycleRecord).toList(), today, null);
+                // 꼬리표는 상태를 바꾸지 않고, 10번과 같은 판정(cycle)을 그대로 싣는다 (04 F-CYC-02)
+                CycleNotes notes = calculator.judgeNotes(itemRecords.stream().map(PanelService::toNoteRecord).toList());
                 return new PanelResponse.ItemStatusBlock(item.itemId(), item.code(), item.name(), r.status(),
                     r.dueReason(), r.baseRecord(), r.nextDueDate(), r.nextDueMileage(),
-                    purposeItemIds.contains(item.itemId()));
+                    notes.lastDecline(), notes.lastCaution(), purposeItemIds.contains(item.itemId()));
             })
             .toList();
     }
 
     private static CycleRecord toCycleRecord(MaintenanceRecordRef r) {
         return new CycleRecord(r.date(), r.mileage(), r.resetsCycle(), r.createdAt(), r.recordId(), r.type());
+    }
+
+    /** 꼬리표 판정 재료. 거절·점검 주의 여부는 maintenance가 알려 주고(api 메서드), 판정은 cycle이 한다. */
+    private static CycleNoteRecord toNoteRecord(MaintenanceRecordRef r) {
+        CycleNoteKind kind = r.isDecline() ? CycleNoteKind.DECLINE
+            : r.isInspectCaution() ? CycleNoteKind.INSPECT_CAUTION : CycleNoteKind.OTHER;
+        return new CycleNoteRecord(r.date(), r.createdAt(), r.recordId(), r.resetsCycle(), kind, r.memo());
     }
 }

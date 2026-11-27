@@ -65,3 +65,9 @@ tasks.register('dbTest', Test) {
     }
     shouldRunAfter tasks.named('test')
 }
+
+// 테스트 JVM은 처음부터 Asia/Seoul로 시작한다. 앱이 시작한 뒤에 바꾸면(ChagokApplication static 블록) 그 전에 UTC를 기억한
+// DB 연결이 생겨, UTC인 CI에서 LocalDate가 하루 전 날짜로 저장되고 테스트가 실행 순서에 따라 실패했다 (#39).
+tasks.withType(Test).configureEach {
+    systemProperty 'user.timezone', 'Asia/Seoul'
+}

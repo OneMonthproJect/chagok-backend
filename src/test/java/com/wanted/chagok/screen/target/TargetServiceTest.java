@@ -1,6 +1,8 @@
 package com.wanted.chagok.screen.target;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
@@ -69,13 +71,22 @@ class TargetServiceTest {
     }
 
     private static MaintenanceRecordRef record(long recordId, long vehicleId, long itemId, LocalDate date) {
-        return new MaintenanceRecordRef(recordId, vehicleId, itemId, date, null, "REPLACE", true, date.atStartOfDay(), null);
+        return new MaintenanceRecordRef(recordId, vehicleId, itemId, date, null, "REPLACE", true, date.atStartOfDay(), null, null);
+    }
+
+    /** 주기를 다시 시작하지 않는 기록(거절·점검). inspectResult는 점검일 때만 값이 있다. */
+    private static MaintenanceRecordRef note(long recordId, long vehicleId, long itemId, LocalDate date, String type,
+                                             String inspectResult, String memo) {
+        return new MaintenanceRecordRef(recordId, vehicleId, itemId, date, null, type, false, date.atStartOfDay(), memo,
+            inspectResult);
     }
 
     private void stub(List<VehicleSummary> vehicles, Map<Long, List<MaintenanceRecordRef>> records,
                       Map<Long, ReservationRef> active) {
         List<Long> ids = vehicles.stream().map(VehicleSummary::vehicleId).toList();
         when(customerReader.findConsentedVehicles(SHOP)).thenReturn(vehicles);
+        // 목록용이라 customer가 마스킹한 값을 싣는다(F-CUS-07). 규칙 자체는 customer의 PhoneMaskerTest가 본다
+        lenient().when(customerReader.maskPhone(anyString())).thenAnswer(i -> "masked:" + i.getArgument(0));
         when(itemReader.findActiveItems(SHOP)).thenReturn(List.of(
             new ItemRef(ENGINE_OIL, "ENGINE_OIL", "엔진오일", 6, 10000, true, 1),
             new ItemRef(BRAKE_PAD, "BRAKE_PAD", "브레이크패드", 12, 20000, true, 2),
@@ -108,7 +119,7 @@ class TargetServiceTest {
 
         TargetListResponse.Item first = response.items().get(0);
         assertThat(first.customerName()).isEqualTo("이영희");
-        assertThat(first.phone()).isEqualTo("010-0000-0002");
+        assertThat(first.phone()).isEqualTo("masked:010-0000-0002");
         assertThat(first.targetItems()).hasSize(1);
         assertThat(first.targetItems().get(0).itemId()).isEqualTo(ENGINE_OIL);
         assertThat(first.targetItems().get(0).name()).isEqualTo("엔진오일");
@@ -145,6 +156,55 @@ class TargetServiceTest {
     }
 
     @Test
+    @DisplayName("T14 도래 항목에 거절이 가장 최근이면 lastDecline이 붙고, 상태·다음 정비일·baseDate는 거절 없이 계산한 값과 같다 (10과 같은 판정)")
+    void t14_declineIsAttachedWithoutChangingStatus() {
+        stub(List.of(vehicle(1, "11바0006", "김민수")), Map.of(
+            1L, List.of(record(1, 1, ENGINE_OIL, LocalDate.of(2026, 3, 24)),                         // 다음 9-24: 도래
+                note(2, 1, ENGINE_OIL, LocalDate.of(2026, 10, 24), "DECLINE", null, "다음에 하겠다고 함"))),
+            Map.of());
+
+        TargetListResponse.TargetItem item = service().getTargets(SHOP).items().get(0).targetItems().get(0);
+
+        assertThat(item.lastDecline().date()).isEqualTo(LocalDate.of(2026, 10, 24));
+        assertThat(item.lastDecline().memo()).isEqualTo("다음에 하겠다고 함");
+        assertThat(item.lastCaution()).isNull();
+        assertThat(item.status()).isEqualTo(ItemStatus.DUE);
+        assertThat(item.nextDueDate()).isEqualTo(LocalDate.of(2026, 9, 24));
+        assertThat(item.baseDate()).isEqualTo(LocalDate.of(2026, 3, 24));
+    }
+
+    @Test
+    @DisplayName("T15 임박 항목의 가장 최근 기록이 점검·주의이면 lastCaution이 붙고 lastDecline은 null. 점검·양호는 표시 없음")
+    void t15_cautionIsAttachedAndGoodIsNot() {
+        stub(List.of(vehicle(1, "12가0001", "김민수"), vehicle(2, "34나0002", "이영희")), Map.of(
+            1L, List.of(record(1, 1, BRAKE_PAD, LocalDate.of(2025, 12, 20)),                        // 다음 12-20: 임박
+                note(2, 1, BRAKE_PAD, LocalDate.of(2026, 10, 24), "INSPECT", "CAUTION", "패드 마모")),
+            2L, List.of(record(3, 2, BRAKE_PAD, LocalDate.of(2025, 12, 20)),
+                note(4, 2, BRAKE_PAD, LocalDate.of(2026, 10, 24), "INSPECT", "GOOD", "이상 없음"))),
+            Map.of());
+
+        TargetListResponse response = service().getTargets(SHOP);
+
+        TargetListResponse.TargetItem caution = response.items().get(0).targetItems().get(0);
+        assertThat(caution.status()).isEqualTo(ItemStatus.SOON);
+        assertThat(caution.lastCaution().date()).isEqualTo(LocalDate.of(2026, 10, 24));
+        assertThat(caution.lastCaution().memo()).isEqualTo("패드 마모");
+        assertThat(caution.lastDecline()).isNull();
+        TargetListResponse.TargetItem good = response.items().get(1).targetItems().get(0);
+        assertThat(good.lastCaution()).isNull();
+        assertThat(good.lastDecline()).isNull();
+    }
+
+    @Test
+    @DisplayName("거절만 있는 항목(미확인)은 대상이 아니라서 거절 표시가 있어도 목록에 오르지 않는다")
+    void declineOnlyItemIsNotATarget() {
+        stub(List.of(vehicle(1, "12가0001", "김민수")),
+            Map.of(1L, List.of(note(1, 1, ENGINE_OIL, LocalDate.of(2026, 10, 24), "DECLINE", null, null))), Map.of());
+
+        assertThat(service().getTargets(SHOP).items()).isEmpty();
+    }
+
+    @Test
     @DisplayName("도래가 있는 차량은 임박만 있는 차량보다 먼저 온다 (다음 정비일 순보다 도래 여부가 먼저)")
     void dueBeforeSoon() {
         // 차량 1: 임박(다음 정비일 12-10, 가까움), 차량 2: 도래(다음 정비일 11-23, 어제). 차량 id는 1이 앞이지만 도래가 먼저다
@@ -171,6 +231,7 @@ class TargetServiceTest {
         assertThat(response.items()).hasSize(1);
         // 동의한 고객의 차량은 findConsentedVehicles 한 번으로만 읽고, 요약을 따로 조회해 동의를 다시 확인하지 않는다
         verify(customerReader).findConsentedVehicles(SHOP);
+        verify(customerReader).maskPhone("010-0000-0001"); // 연락처 마스킹 외에는 읽지 않는다
         verifyNoMoreInteractions(customerReader);
     }
 

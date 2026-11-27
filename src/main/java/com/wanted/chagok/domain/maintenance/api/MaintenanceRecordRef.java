@@ -1,5 +1,6 @@
 package com.wanted.chagok.domain.maintenance.api;
 
+import com.wanted.chagok.domain.maintenance.entity.RecordType;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 
@@ -15,6 +16,8 @@ import java.time.LocalDateTime;
  * @param mileage     그때의 주행거리. 없으면 null
  * @param createdAt   저장 시각 (같은 날 기록 사이의 선후 기준)
  * @param memo        메모. 없으면 null
+ * @param inspectResult 점검 결과 {@code GOOD}·{@code CAUTION} (08 0.4). 점검({@code INSPECT})이고 결과를 남겼을 때만 값이 있고
+ *                    그 밖은 null (07 3.7 CHECK). 거절·주의 꼬리표(04 F-CYC-02) 판정의 재료다
  */
 public record MaintenanceRecordRef(
     long recordId,
@@ -25,6 +28,20 @@ public record MaintenanceRecordRef(
     String type,
     boolean resetsCycle,
     LocalDateTime createdAt,
-    String memo
+    String memo,
+    String inspectResult
 ) {
+
+    /**
+     * 거절 기록인가. {@code type}의 값 이름은 maintenance가 아는 것이라 호출하는 쪽이 문자열을 다시 비교하지 않고 이 메서드를 쓴다
+     * (거절·주의 꼬리표 판정 재료를 만들 때, screen 세 곳이 같은 문자열을 따로 갖지 않게 한다).
+     */
+    public boolean isDecline() {
+        return RecordType.DECLINE.name().equals(type);
+    }
+
+    /** 점검 기록이고 결과가 주의인가 (거절·주의 꼬리표의 "지난 점검 주의" 재료). */
+    public boolean isInspectCaution() {
+        return RecordType.INSPECT.name().equals(type) && "CAUTION".equals(inspectResult);
+    }
 }

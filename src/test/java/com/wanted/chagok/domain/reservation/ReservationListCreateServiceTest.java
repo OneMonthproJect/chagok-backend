@@ -339,6 +339,8 @@ class ReservationListCreateServiceTest {
             4L, new VehicleSummary(4L, "12가0004", 40L, "오세훈", "010-0000-0004", true),
             8L, new VehicleSummary(8L, "12가0008", 80L, "김민수", "010-0000-0008", true),
             9L, new VehicleSummary(9L, "12가0009", 90L, "박지영", "010-0000-0009", true)));
+        when(customerReader.maskPhone("010-0000-0004")).thenReturn("010-****-0004"); // 목록용이라 마스킹한 값을 싣는다(F-CUS-07)
+        when(customerReader.maskPhone("010-0000-0008")).thenReturn("010-****-0008");
         when(itemRepository.findByShopIdAndReservationIdIn(eq(SHOP), anyCollection())).thenReturn(List.of(
             ReservationItem.of(SHOP, 1L, 5L), ReservationItem.of(SHOP, 1L, 2L)));
         when(itemReader.findItems(eq(SHOP), anyCollection())).thenReturn(Map.of(
@@ -357,7 +359,8 @@ class ReservationListCreateServiceTest {
         assertThat(first.plateNumber()).isEqualTo("12가0004");
         assertThat(first.customerId()).isEqualTo(40L);
         assertThat(first.customerName()).isEqualTo("오세훈");
-        assertThat(first.phone()).isEqualTo("010-0000-0004");
+        assertThat(first.phone()).isEqualTo("010-****-0004");
+        assertThat(response.items().get(1).phone()).isEqualTo("010-****-0008");
         assertThat(first.purposeSummary()).isEqualTo("엔진오일·배터리·기타"); // sortOrder 순 + 기타는 맨 끝
         assertThat(response.items().get(1).needsAction()).isFalse();
         assertThat(response.items().get(1).purposeSummary()).isNull();

@@ -1,10 +1,13 @@
 package com.wanted.chagok.domain.reservation.entity;
 
 /**
- * 예약 이력 종류 (07 4.2 {@code reservation_revision.kind}, 08 0.4). 지금은 재배정만 쓴다.
- * 상태·메모 정정({@code STATUS}·{@code MEMO}, API 40)은 그 이슈(backend#38)에서 더한다 — V2 CHECK는 셋을 모두 허용한다.
+ * 예약 이력 종류 (07 4.2 {@code reservation_revision.kind}, 08 0.4). V2 CHECK는 세 값을 허용한다.
  */
 public enum RevisionKind {
-    /** 담당 재배정 (API 19, D-53). */
+    /** 상태 정정 (API 40, D-53): 이전·이후 상태가 항상 있다. */
+    STATUS,
+    /** 예약 메모 정정 (API 40, D-53): 이전 메모는 NULL일 수 있어 DB CHECK가 아니라 서버가 지킨다. */
+    MEMO,
+    /** 담당 재배정 (API 19, D-53): 이전·이후 담당이 항상 있다. */
     ASSIGNEE
 }

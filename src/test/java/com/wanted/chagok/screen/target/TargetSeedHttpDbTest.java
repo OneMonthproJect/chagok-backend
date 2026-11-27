@@ -133,6 +133,34 @@ class TargetSeedHttpDbTest {
     }
 
     @Test
+    @DisplayName("08 14 꼬리표(07 7.2): 11바0006 엔진오일 targetItem에 lastDecline(D-1M), 33아0008 타이어에 lastCaution(D-2M, 메모)이 붙고 서로 다른 값은 null이다")
+    @SuppressWarnings("unchecked")
+    void seedNotesAreAttachedToTargetItems() throws Exception {
+        String body = targets(ownerA);
+
+        List<Map<String, Object>> oil = JsonPath.read(body, "$.data.items[?(@.plateNumber=='11바0006')].targetItems[0]");
+        assertThat(oil.get(0).get("name")).isEqualTo("엔진오일");
+        assertThat(oil.get(0).get("status")).isEqualTo("DUE"); // 거절은 상태를 바꾸지 않는다
+        Map<String, Object> decline = (Map<String, Object>) oil.get(0).get("lastDecline");
+        assertThat(decline.get("date")).isEqualTo(today.minusMonths(1).toString());
+        assertThat(decline.get("memo")).isNull();
+        assertThat(oil.get(0).get("lastCaution")).isNull();
+
+        List<Map<String, Object>> tire = JsonPath.read(body, "$.data.items[?(@.plateNumber=='33아0008')].targetItems[0]");
+        assertThat(tire.get(0).get("name")).isEqualTo("타이어 상태 점검");
+        assertThat(tire.get(0).get("status")).isEqualTo("SOON"); // 점검·주의는 상태를 바꾸지 않는다
+        Map<String, Object> caution = (Map<String, Object>) tire.get(0).get("lastCaution");
+        assertThat(caution.get("date")).isEqualTo(today.minusMonths(2).toString());
+        assertThat(caution.get("memo")).isEqualTo("타이어 트레드 마모 진행, 다음 방문 때 교체 권장");
+        assertThat(tire.get(0).get("lastDecline")).isNull();
+
+        // 꼬리표가 없는 대상 항목은 둘 다 null
+        List<Map<String, Object>> plain = JsonPath.read(body, "$.data.items[?(@.plateNumber=='12가0001')].targetItems[0]");
+        assertThat(plain.get(0).get("lastDecline")).isNull();
+        assertThat(plain.get(0).get("lastCaution")).isNull();
+    }
+
+    @Test
     @DisplayName("대상이 아닌 차량: 미동의(장미래 44자0009), 여유(최지은 78라0004·서민준 22사0007), 미확인(정우성 90마0005·66카0011)은 나오지 않는다")
     void nonTargetsAreExcluded() throws Exception {
         List<String> plates = plates(targets(ownerA));
@@ -147,7 +175,7 @@ class TargetSeedHttpDbTest {
 
         Map<String, Object> due = row(body, "12가0001");
         assertThat(due.get("customerName")).isEqualTo("김민수");
-        assertThat(due.get("phone")).isEqualTo("010-0000-0001");
+        assertThat(due.get("phone")).isEqualTo("010-****-0001");
         List<Map<String, Object>> dueItems = JsonPath.read(body, "$.data.items[?(@.plateNumber=='12가0001')].targetItems[0]");
         assertThat(dueItems).hasSize(1);
         assertThat(dueItems.get(0).get("name")).isEqualTo("엔진오일");
@@ -210,7 +238,7 @@ class TargetSeedHttpDbTest {
         assertThat(plates(bBody)).containsExactly("12가0001");
         Map<String, Object> bRow = row(bBody, "12가0001");
         assertThat(bRow.get("customerName")).isEqualTo("강동원");
-        assertThat(bRow.get("phone")).isEqualTo("010-0000-0101");
+        assertThat(bRow.get("phone")).isEqualTo("010-****-0101");
         assertThat(bRow.get("activeReservation")).isNull();
         List<Map<String, Object>> bItems = JsonPath.read(bBody, "$.data.items[0].targetItems");
         assertThat(bItems).hasSize(1);

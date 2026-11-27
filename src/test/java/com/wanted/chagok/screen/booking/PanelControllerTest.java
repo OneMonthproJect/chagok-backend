@@ -9,6 +9,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.wanted.chagok.domain.cycle.api.BaseRecord;
+import com.wanted.chagok.domain.cycle.api.CycleNote;
 import com.wanted.chagok.domain.cycle.api.ItemStatus;
 import com.wanted.chagok.domain.maintenance.api.VisitRef;
 import com.wanted.chagok.domain.reservation.api.ReservationAssignee;
@@ -68,10 +69,12 @@ class PanelControllerTest {
             new PanelResponse.CustomerBlock(10L, "오세훈", "010-0000-0010", true),
             new PanelResponse.VehicleBlock(10L, "55차0010", "쏘나타", 2018, 97000),
             List.of(new VisitRef("5eed-15", LocalDate.of(2026, 10, 24), null, "김정비", List.of(
-                new VisitRef.VisitRecord(16L, 1L, "엔진오일", "REPLACE", LocalDate.of(2026, 10, 24), null)))),
+                new VisitRef.VisitRecord(16L, 1L, "엔진오일", "REPLACE", LocalDate.of(2026, 10, 24), null,
+                    0, false, new VisitRef.RecordStaff(2L, "김정비"))))),
             3L,
             List.of(new PanelResponse.ItemStatusBlock(6L, "BATTERY", "배터리", ItemStatus.SOON, null,
-                new BaseRecord(LocalDate.of(2023, 12, 14), null, "REPLACE"), LocalDate.of(2026, 12, 14), null, true)));
+                new BaseRecord(LocalDate.of(2023, 12, 14), null, "REPLACE"), LocalDate.of(2026, 12, 14), null,
+                null, new CycleNote(LocalDate.of(2026, 10, 24), "앞 타이어 마모"), true)));
     }
 
     @Test
@@ -100,6 +103,9 @@ class PanelControllerTest {
             .andExpect(jsonPath("$.data.itemStatuses[0].status").value("SOON"))
             .andExpect(jsonPath("$.data.itemStatuses[0].baseRecord.date").value("2023-12-14"))
             .andExpect(jsonPath("$.data.itemStatuses[0].nextDueDate").value("2026-12-14"))
+            .andExpect(jsonPath("$.data.itemStatuses[0].lastDecline").isEmpty())
+            .andExpect(jsonPath("$.data.itemStatuses[0].lastCaution.date").value("2026-10-24"))
+            .andExpect(jsonPath("$.data.itemStatuses[0].lastCaution.memo").value("앞 타이어 마모"))
             .andExpect(jsonPath("$.data.itemStatuses[0].highlighted").value(true));
 
         verify(service).getPanel(3L, 4L);

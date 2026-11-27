@@ -64,4 +64,31 @@ tasks.register('dbTest', Test) {
         includeTags 'db'
     }
     shouldRunAfter tasks.named('test')
+    // JvmTimeZoneDbTest는 UTC로 시작한 JVM에서 따로 돈다(아래 tzTest)
+    filter {
+        excludeTestsMatching '*JvmTimeZoneDbTest'
+    }
+    finalizedBy 'tzTest'
+}
+
+// 테스트 JVM은 처음부터 Asia/Seoul로 시작한다. 앱이 시작한 뒤에 바꾸면(ChagokApplication static 블록) 그 전에 UTC를 기억한
+// DB 연결이 생겨, UTC인 CI에서 LocalDate가 하루 전 날짜로 저장되고 테스트가 실행 순서에 따라 실패했다 (#39).
+tasks.withType(Test).configureEach {
+    systemProperty 'user.timezone', 'Asia/Seoul'
+}
+
+// JvmTimeZoneDbTest 전용: JVM을 UTC로 시작해 ChagokApplication의 static 블록(Asia/Seoul 고정)이 없으면 실패하게 한다 (#65).
+// 위 설정과 섞이면 이 테스트가 항상 통과하므로 별도 JVM·작업으로 나눈다. dbTest가 끝난 뒤 이어서 돈다.
+tasks.register('tzTest', Test) {
+    description = '앱이 JVM 시간대를 Asia/Seoul로 고정하는지(UTC로 시작한 JVM에서) 확인한다.'
+    group = 'verification'
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+    systemProperty 'user.timezone', 'UTC'
+    useJUnitPlatform {
+        includeTags 'db'
+    }
+    filter {
+        includeTestsMatching '*JvmTimeZoneDbTest'
+    }
 }

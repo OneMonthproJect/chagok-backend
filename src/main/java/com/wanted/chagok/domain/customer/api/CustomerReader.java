@@ -40,4 +40,10 @@ public interface CustomerReader {
      * @param shopId 로그인한 계정의 정비소 (요청 값이 아니다, 07 I-3)
      */
     List<VehicleSummary> findConsentedVehicles(long shopId);
+
+    /**
+     * 목록 응답(04·05·14·15)에 실을 연락처를 마스킹한다 (08 0.5, D-63 B07, F-CUS-07). 규칙은 이 메서드 한 곳이다 — 호출하는 쪽이
+     * 규칙을 다시 만들거나, 목록이 아닌 응답(07·09·17·28)에 쓰지 않는다. 비어 있는 값은 그대로 돌려준다.
+     */
+    String maskPhone(String phone);
 }

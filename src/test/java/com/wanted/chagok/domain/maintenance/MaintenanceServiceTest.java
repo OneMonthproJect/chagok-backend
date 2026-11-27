@@ -48,6 +48,9 @@ class MaintenanceServiceTest {
     private MaintenanceRecordRepository repository;
 
     @Mock
+    private com.wanted.chagok.domain.maintenance.repository.MaintenanceRecordRevisionRepository revisions;
+
+    @Mock
     private CustomerReader customers;
 
     @Mock
@@ -60,7 +63,7 @@ class MaintenanceServiceTest {
     private StaffReader staff;
 
     private MaintenanceService service() {
-        return new MaintenanceService(repository, customers, vehicleWriter, items, staff,
+        return new MaintenanceService(repository, revisions, customers, vehicleWriter, items, staff,
             java.time.Clock.fixed(java.time.Instant.parse("2026-11-25T03:00:00Z"), java.time.ZoneId.of("Asia/Seoul")));
     }
 
@@ -81,6 +84,7 @@ class MaintenanceServiceTest {
             ReflectionTestUtils.setField(r, "source", type.isExternal() ? "CUSTOMER_STATEMENT" : "SHOP");
             ReflectionTestUtils.setField(r, "staffId", 11L);
             ReflectionTestUtils.setField(r, "createdAt", LocalDateTime.parse(savedAt));
+            ReflectionTestUtils.setField(r, "version", 0);
             return r;
         } catch (ReflectiveOperationException e) {
             throw new IllegalStateException(e);

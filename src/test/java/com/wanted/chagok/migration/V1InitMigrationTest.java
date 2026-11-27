@@ -25,7 +25,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 /**
  * V1__init.sql 검증 — chagok-docs 07 6.3 체크리스트 V1-1 ~ V1-10, V1-12, V1-13 (TEST 명세서 6.1).
- * V2(P0-나머지, chagok-backend#31)가 적용된 DB 기준이다. V1-1·V1-2·V1-8·V1-12·V1-13은 V2 기대값으로 옮겼다(아래 LIMIT).
+ * V3(P1, chagok-backend#134)까지 적용된 DB 기준이다. V1-1·V1-2·V1-8·V1-12·V1-13은 V2·V3 기대값으로 옮겼다(아래 LIMIT).
  *
  * <p>서버 검증을 거치지 않고 SQL을 직접 넣어 DB 제약이 막는지 본다. 거부는 MySQL 오류 번호까지 확인한다
  * (1452 FK, 3819 CHECK, 1062 UNIQUE, 1364 기본값 없음). 다른 이유로 실패해도 통과로 세지 않기 위해서다.
@@ -43,8 +43,10 @@ import org.springframework.transaction.annotation.Transactional;
  * UNIQUE(shop_id, id))·V1-8({@code IN_PROGRESS}·{@code NO_SHOW} 허용)·V1-12({@code inspect_result},
  * {@code maintenance_record.updated_at}·{@code version}, {@code customer.version}·{@code vehicle.version}, 이력 표)·
  * V1-13(타임스탬프 칼럼 수: {@code maintenance_record.updated_at}, 이력 표 {@code created_at}).
- * 남은 것은 V3(P1) PR: V1-1·V1-2({@code contact_log})·V1-12({@code customer.status}·{@code anonymized_at},
- * {@code vehicle.active}, {@code staff.active}, {@code contact_log}).
+ * V3(P1, #134)에서 옮긴 것: V1-1(테이블 13개: {@code contact_log}·{@code terms_agreement})·V1-2(복합 FK 11개,
+ * 단일 FK 17개, {@code terms_agreement} UNIQUE)·V1-12({@code staff.active}, {@code contact_log}·{@code terms_agreement} 칼럼)·
+ * V1-13(타임스탬프 칼럼 17개). {@code customer.status}·{@code anonymized_at}·{@code vehicle.active}(D-56)는
+ * POL-46 검토가 끝날 때까지 V3에 없으므로 "없어야 할 칼럼"으로 계속 확인한다(12 6장).
  * 명세가 바뀐 만큼만 옮기는 것이고 검증을 약하게 하는 것이 아니다(CONVENTIONS 12장).
  */
 @Tag("db")
@@ -65,7 +67,8 @@ class V1InitMigrationTest {
     private static final List<String> TABLES = List.of(
         "platform_admin", "shop", "staff", "customer", "service_item",
         "vehicle", "maintenance_record", "reservation", "reservation_item",
-        "maintenance_record_revision", "reservation_revision");
+        "maintenance_record_revision", "reservation_revision",
+        "contact_log", "terms_agreement");
 
     private static final String VEHICLE_SQL =
         "INSERT INTO vehicle (shop_id, customer_id, plate_number, created_at, updated_at) VALUES (?, ?, ?, ?, ?)";
@@ -128,10 +131,10 @@ class V1InitMigrationTest {
     }
 
     @Test
-    @DisplayName("V1-1 빈 DB에 V1→V2 적용·앱 기동(validate) 성공, 테이블 11개")
-    void v1_1_appliedAndElevenTables() {
+    @DisplayName("V1-1 빈 DB에 V1→V3 적용·앱 기동(validate) 성공, 테이블 13개")
+    void v1_1_appliedAndThirteenTables() {
         // 이 테스트가 실행된다는 것 자체가 Spring 컨텍스트(Flyway 적용 + ddl-auto: validate) 기동 성공이다
-        for (String version : List.of("1", "2")) {
+        for (String version : List.of("1", "2", "3")) {
             Map<String, Object> history = jdbc.queryForMap(
                 "SELECT version, success FROM flyway_schema_history WHERE version = ?", version);
             assertThat(history.get("success")).as("flyway V%s success", version).isIn(true, 1, (byte) 1);
@@ -145,7 +148,7 @@ class V1InitMigrationTest {
     }
 
     @Test
-    @DisplayName("V1-2 FK: 복합 10개 + 단일 13개(shop_id 9, 계정 3, admin 1)의 이름·칼럼 조합, 모두 RESTRICT")
+    @DisplayName("V1-2 FK: 복합 11개 + 단일 17개(shop_id 11, 계정 5, admin 1)의 이름·칼럼 조합, 모두 RESTRICT")
     void v1_2_foreignKeys() {
         List<Map<String, Object>> rows = jdbc.queryForList(
             "SELECT rc.constraint_name AS name, rc.table_name AS child, rc.referenced_table_name AS parent,"
@@ -170,7 +173,7 @@ class V1InitMigrationTest {
         }
 
         Map<String, String> expectedComposite = new TreeMap<>(Map.ofEntries(
-            // 복합 FK 10개 (07 5.1): 기존 6개 + 담당 정비사 2개 (D-51·D-57) + 이력 표 2개 (V2)
+            // 복합 FK 11개 (07 5.1): 기존 6개 + 담당 정비사 2개 (D-51·D-57) + 이력 표 2개 (V2) + 연락 기록 1개 (V3)
             Map.entry("fk_vehicle_customer", "vehicle(shop_id,customer_id)->customer(shop_id,id)"),
             Map.entry("fk_maintenance_record_vehicle", "maintenance_record(shop_id,vehicle_id)->vehicle(shop_id,id)"),
             Map.entry("fk_maintenance_record_service_item",
@@ -185,10 +188,11 @@ class V1InitMigrationTest {
             Map.entry("fk_maintenance_record_revision_maintenance_record",
                 "maintenance_record_revision(shop_id,record_id)->maintenance_record(shop_id,id)"),
             Map.entry("fk_reservation_revision_reservation",
-                "reservation_revision(shop_id,reservation_id)->reservation(shop_id,id)")));
+                "reservation_revision(shop_id,reservation_id)->reservation(shop_id,id)"),
+            Map.entry("fk_contact_log_customer", "contact_log(shop_id,customer_id)->customer(shop_id,id)")));
 
         Map<String, String> expectedSingle = new TreeMap<>(Map.ofEntries(
-            // 단일 FK: shop_id 9개 (이력 표 2개 포함)
+            // 단일 FK: shop_id 11개 (이력 표 2개 + V3 표 2개 포함)
             Map.entry("fk_staff_shop", "staff(shop_id)->shop(id)"),
             Map.entry("fk_customer_shop", "customer(shop_id)->shop(id)"),
             Map.entry("fk_service_item_shop", "service_item(shop_id)->shop(id)"),
@@ -198,15 +202,19 @@ class V1InitMigrationTest {
             Map.entry("fk_reservation_item_shop", "reservation_item(shop_id)->shop(id)"),
             Map.entry("fk_maintenance_record_revision_shop", "maintenance_record_revision(shop_id)->shop(id)"),
             Map.entry("fk_reservation_revision_shop", "reservation_revision(shop_id)->shop(id)"),
-            // 단일 FK: 계정(토큰 값) 3개 — 예약 등록자, 이력 수정자 2개. platform_admin 1개
+            Map.entry("fk_contact_log_shop", "contact_log(shop_id)->shop(id)"),
+            Map.entry("fk_terms_agreement_shop", "terms_agreement(shop_id)->shop(id)"),
+            // 단일 FK: 계정(토큰 값) 5개 — 예약 등록자, 이력 수정자 2개, 연락 기록자, 약관 동의자. platform_admin 1개
             Map.entry("fk_reservation_staff", "reservation(created_by_staff_id)->staff(id)"),
             Map.entry("fk_maintenance_record_revision_staff",
                 "maintenance_record_revision(changed_by_staff_id)->staff(id)"),
             Map.entry("fk_reservation_revision_staff", "reservation_revision(changed_by_staff_id)->staff(id)"),
+            Map.entry("fk_contact_log_staff", "contact_log(staff_id)->staff(id)"),
+            Map.entry("fk_terms_agreement_staff", "terms_agreement(staff_id)->staff(id)"),
             Map.entry("fk_shop_platform_admin", "shop(created_by_admin_id)->platform_admin(id)")));
 
-        assertThat(expectedComposite).hasSize(10);
-        assertThat(expectedSingle).hasSize(13);
+        assertThat(expectedComposite).hasSize(11);
+        assertThat(expectedSingle).hasSize(17);
         Map<String, String> expected = new TreeMap<>(expectedComposite);
         expected.putAll(expectedSingle);
         assertThat(actual).isEqualTo(expected);
@@ -238,6 +246,7 @@ class V1InitMigrationTest {
             Map.entry("uk_maintenance_record_revision_record_id_revision_no",
                 "maintenance_record_revision(record_id,revision_no)"),
             Map.entry("uk_reservation_shop_id_id", "reservation(shop_id,id)"),
+            Map.entry("uk_terms_agreement_shop_id_terms_version", "terms_agreement(shop_id,terms_version)"),
             Map.entry("uk_reservation_item_reservation_id_service_item_id",
                 "reservation_item(reservation_id,service_item_id)"))));
         assertThat(actualUniques.values().stream().filter(v -> v.endsWith("(shop_id,id)")))
@@ -261,6 +270,14 @@ class V1InitMigrationTest {
             .isEqualTo("shop_id,reservation_id,created_at");
         assertThat(indexColumns("reservation_revision", "idx_reservation_revision_changed_by_staff_id"))
             .isEqualTo("changed_by_staff_id");
+
+        // V3 인덱스 (07 4.3·4.4). terms_agreement의 shop_id FK 인덱스는 UNIQUE(shop_id, terms_version)가 겸한다
+        assertThat(indexColumns("contact_log", "idx_contact_log_shop_id_customer_id_contacted_at"))
+            .isEqualTo("shop_id,customer_id,contacted_at");
+        assertThat(indexColumns("contact_log", "idx_contact_log_staff_id")).isEqualTo("staff_id");
+        assertThat(indexColumns("terms_agreement", "idx_terms_agreement_staff_id")).isEqualTo("staff_id");
+        assertThat(indexColumns("terms_agreement", "uk_terms_agreement_shop_id_terms_version"))
+            .isEqualTo("shop_id,terms_version");
     }
 
     @Test
@@ -399,7 +416,7 @@ class V1InitMigrationTest {
     }
 
     @Test
-    @DisplayName("V1-12 V2에 P0-나머지 표·칼럼·값이 있고 P1 표·칼럼은 아직 없음, 있어야 할 칼럼(assignee_staff_id 등)은 있음")
+    @DisplayName("V1-12 V3까지의 표·칼럼·값이 있고 D-56 칼럼(customer.status 등)은 아직 없음, 있어야 할 칼럼(assignee_staff_id 등)은 있음")
     void v1_12_noLaterStageColumnsOrValues() {
         Map<String, List<String>> expectedColumns = Map.ofEntries(
             Map.entry("platform_admin", List.of("id", "login_id", "password_hash", "name", "created_at")),
@@ -407,7 +424,7 @@ class V1InitMigrationTest {
             Map.entry("shop", List.of("id", "name", "phone", "status", "created_by_admin_id", "created_at",
                 "brn", "shop_address")),
             Map.entry("staff", List.of("id", "shop_id", "login_id", "password_hash", "name", "role",
-                "password_change_required", "created_at")),
+                "password_change_required", "created_at", "active")),
             // V2: customer·vehicle에 version
             Map.entry("customer", List.of("id", "shop_id", "name", "phone", "consent", "created_at", "updated_at",
                 "version")),
@@ -428,7 +445,12 @@ class V1InitMigrationTest {
                 "prev_service_item_id", "prev_inspect_result", "prev_memo", "prev_staff_id", "created_at")),
             Map.entry("reservation_revision", List.of("id", "shop_id", "reservation_id", "kind",
                 "changed_by_staff_id", "reason", "prev_status", "new_status", "prev_memo", "new_memo",
-                "prev_assignee_id", "new_assignee_id", "created_at")));
+                "prev_assignee_id", "new_assignee_id", "created_at")),
+            // V3 (07 4.3·4.4)
+            Map.entry("contact_log", List.of("id", "shop_id", "customer_id", "result", "memo", "contacted_at",
+                "staff_id", "created_at")),
+            Map.entry("terms_agreement", List.of("id", "shop_id", "staff_id", "terms_version", "accepted_at",
+                "created_at")));
 
         // 1) 칼럼 목록 전체가 07 3장·4장(V1 + V2)과 같다
         for (String table : TABLES) {
@@ -442,29 +464,25 @@ class V1InitMigrationTest {
         mustExist.forEach((table, columns) ->
             assertThat(columnsOf(table)).as("must exist in %s", table).containsAll(columns));
 
-        // 3) 없어야 할 표 (V3 연락 기록) — 07 4장. V2 이력 표 2개는 1)의 칼럼 목록과 V1-1의 테이블 목록이 확인한다
-        for (String table : List.of("contact_log")) {
-            assertThat(jdbc.queryForObject(
-                "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = ?",
-                Integer.class, table)).as("table %s must not exist before V3", table).isZero();
-        }
-
-        // 4) 없어야 할 칼럼 (V3: P1) — 07 4장
+        // 3) 없어야 할 칼럼 (D-56, POL-46 검토 전이라 V3에도 없음) — 07 4장, 12 6장
         Map<String, List<String>> mustNotExist = Map.of(
             "customer", List.of("status", "anonymized_at"),
-            "vehicle", List.of("active"),
-            "staff", List.of("active"));
+            "vehicle", List.of("active"));
         mustNotExist.forEach((table, columns) ->
-            assertThat(columnsOf(table)).as("must not exist in %s", table).doesNotContainAnyElementsOf(columns));
+            assertThat(columnsOf(table)).as("must not exist in %s (POL-46)", table).doesNotContainAnyElementsOf(columns));
 
-        // 5) 예약 상태 CHECK: V2에서 IN_PROGRESS·NO_SHOW가 더해졌다 (같은 이름으로 다시 만듦)
+        // 4) 예약 상태 CHECK: V2에서 IN_PROGRESS·NO_SHOW가 더해졌다 (같은 이름으로 다시 만듦)
         assertThat(checkClause("ck_reservation_status"))
             .contains("RESERVED", "COMPLETED", "CANCELED", "IN_PROGRESS", "NO_SHOW");
 
-        // 6) V2 CHECK 이름 (회의 결정 5): 점검 결과 값, 점검 결과는 INSPECT일 때만, 예약 이력 kind
+        // 5) V2 CHECK 이름 (회의 결정 5): 점검 결과 값, 점검 결과는 INSPECT일 때만, 예약 이력 kind
         assertThat(checkClause("ck_maintenance_record_inspect_result")).contains("GOOD", "CAUTION");
         assertThat(checkClause("ck_maintenance_record_inspect_result_record_type")).contains("INSPECT");
         assertThat(checkClause("ck_reservation_revision_kind")).contains("STATUS", "MEMO", "ASSIGNEE");
+
+        // 6) V3 CHECK: 연락 결과 6개 값
+        assertThat(checkClause("ck_contact_log_result"))
+            .contains("RESERVED", "ABSENT", "ALREADY_DONE", "CONTACTED", "WRONG_NUMBER", "REFUSED");
     }
 
     @Test
@@ -499,8 +517,8 @@ class V1InitMigrationTest {
                 }
             }
         }
-        // created_at 11개(표 11개) + updated_at 4개 (customer · vehicle · reservation · maintenance_record(V2))
-        assertThat(timestampColumns).isEqualTo(15);
+        // created_at 13개(표 13개) + updated_at 4개 (customer · vehicle · reservation · maintenance_record(V2))
+        assertThat(timestampColumns).isEqualTo(17);
     }
 
     // ---------- V2 새 제약의 거부 사례 (chagok-backend#31) ----------
@@ -629,6 +647,77 @@ class V1InitMigrationTest {
         assertRejected(COLUMN_CANNOT_BE_NULL, sql, "V2 검증 E", "02-0000-0005", "123-45-67890", null, NOW);
     }
 
+    // ---------- V3 새 제약의 거부 사례 (chagok-backend#134) ----------
+
+    private static final String CONTACT_LOG_SQL =
+        "INSERT INTO contact_log (shop_id, customer_id, result, memo, contacted_at, staff_id, created_at)"
+            + " VALUES (?, ?, ?, ?, ?, ?, '" + NOW + "')";
+    private static final String TERMS_SQL =
+        "INSERT INTO terms_agreement (shop_id, staff_id, terms_version, accepted_at, created_at)"
+            + " VALUES (?, ?, ?, ?, '" + NOW + "')";
+
+    @Test
+    @DisplayName("V3 staff.active: 값 없이 INSERT하면 TRUE, 기존 행도 TRUE, NULL → 1048")
+    void v3_staffActiveDefaultsToTrue() {
+        // setUp에서 active 없이 넣은 계정이 활성이다 (기존 INSERT 코드가 깨지지 않음)
+        assertThat(jdbc.queryForObject("SELECT active FROM staff WHERE id = ?", Boolean.class, staffA)).isTrue();
+        assertThat(jdbc.queryForMap(
+            "SELECT is_nullable, data_type FROM information_schema.columns"
+                + " WHERE table_schema = DATABASE() AND table_name = 'staff' AND column_name = 'active'"))
+            .containsEntry("is_nullable", "NO")
+            .containsEntry("data_type", "tinyint");
+
+        // 양성 대조: 비활성으로 저장할 수 있다
+        jdbc.update("UPDATE staff SET active = FALSE WHERE id = ?", mechanicA);
+        assertThat(jdbc.queryForObject("SELECT active FROM staff WHERE id = ?", Boolean.class, mechanicA)).isFalse();
+
+        assertRejected(COLUMN_CANNOT_BE_NULL, "UPDATE staff SET active = NULL WHERE id = ?", staffA);
+    }
+
+    @Test
+    @DisplayName("V3 contact_log: 결과 6개 값은 성공, 'X' → 3819, 다른 정비소 고객 → 1452, 필수 칼럼 NULL → 1048")
+    void v3_contactLogRules() {
+        // 양성 대조: 결과 6개 값 모두, 메모는 NULL 허용
+        for (String result : List.of("RESERVED", "ABSENT", "ALREADY_DONE", "CONTACTED", "WRONG_NUMBER", "REFUSED")) {
+            insert(CONTACT_LOG_SQL, shopA, customerA, result, null, NOW, staffA);
+        }
+        insert(CONTACT_LOG_SQL, shopA, customerA, "CONTACTED", "메모", NOW, mechanicA);
+
+        assertRejectedBy(CHECK_VIOLATION, "ck_contact_log_result", CONTACT_LOG_SQL,
+            shopA, customerA, "X", null, NOW, staffA);
+        // 다른 정비소 고객을 가리키면 복합 FK가 막는다 (07 5.1)
+        assertRejectedBy(FK_VIOLATION, "fk_contact_log_customer", CONTACT_LOG_SQL,
+            shopA, customerB, "CONTACTED", null, NOW, staffA);
+        assertRejectedBy(FK_VIOLATION, "fk_contact_log_customer", CONTACT_LOG_SQL,
+            shopB, customerA, "CONTACTED", null, NOW, staffB);
+        // 없는 계정은 단일 FK가 막는다
+        assertRejectedBy(FK_VIOLATION, "fk_contact_log_staff", CONTACT_LOG_SQL,
+            shopA, customerA, "CONTACTED", null, NOW, 999_999_999L);
+        // 필수 칼럼
+        assertRejected(COLUMN_CANNOT_BE_NULL, CONTACT_LOG_SQL, shopA, customerA, null, null, NOW, staffA);
+        assertRejected(COLUMN_CANNOT_BE_NULL, CONTACT_LOG_SQL, shopA, customerA, "CONTACTED", null, null, staffA);
+        // created_at에 DEFAULT 없음
+        assertRejected(NO_DEFAULT_VALUE,
+            "INSERT INTO contact_log (shop_id, customer_id, result, contacted_at, staff_id) VALUES (?, ?, ?, ?, ?)",
+            shopA, customerA, "CONTACTED", NOW, staffA);
+    }
+
+    @Test
+    @DisplayName("V3 terms_agreement: 같은 정비소·같은 버전 두 번 → 1062, 다른 버전·다른 정비소는 성공, 없는 계정 → 1452")
+    void v3_termsAgreementRules() {
+        // 양성 대조
+        insert(TERMS_SQL, shopA, staffA, "2026-12-01", NOW);
+        insert(TERMS_SQL, shopA, staffA, "2027-01-01", NOW);
+        insert(TERMS_SQL, shopB, staffB, "2026-12-01", NOW);
+
+        assertRejectedBy(DUPLICATE_KEY, "uk_terms_agreement_shop_id_terms_version", TERMS_SQL,
+            shopA, staffA, "2026-12-01", NOW);
+        assertRejectedBy(FK_VIOLATION, "fk_terms_agreement_staff", TERMS_SQL,
+            shopA, 999_999_999L, "2027-02-01", NOW);
+        assertRejected(COLUMN_CANNOT_BE_NULL, TERMS_SQL, shopA, staffA, null, NOW);
+        assertRejected(COLUMN_CANNOT_BE_NULL, TERMS_SQL, shopA, staffA, "2027-03-01", null);
+    }
+
     // ---------- helpers ----------
 
     private long insertStaff(long shopId, String loginId, String role) {
@@ -688,9 +777,9 @@ class V1InitMigrationTest {
         assertThat(thrown).as("should be rejected by %s: %s", constraintName, sql).isNotNull();
         assertThat(mysqlErrorCode(thrown)).as("MySQL error code for: %s (%s)", sql, thrown.getMessage())
             .isEqualTo(expectedErrorCode);
-        // FK(1452)는 `이름`, CHECK(3819)는 '이름' 으로 메시지에 나온다
+        // FK(1452)는 `이름`, CHECK(3819)는 '이름', UNIQUE(1062)는 '테이블.이름' 으로 메시지에 나온다
         assertThat(mysqlMessage(thrown)).as("violated constraint for: %s", sql)
-            .containsAnyOf("`" + constraintName + "`", "'" + constraintName + "'");
+            .containsAnyOf("`" + constraintName + "`", "'" + constraintName + "'", "." + constraintName + "'");
     }
 
     private static String mysqlMessage(Throwable t) {

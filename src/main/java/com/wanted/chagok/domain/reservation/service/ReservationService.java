@@ -285,7 +285,7 @@ public class ReservationService implements ReservationReader {
 
         reservation.start(request.version());
         reservationRepository.saveAndFlush(reservation);
-        return ReservationResponse.changed(reservation);
+        return ReservationResponse.statusChanged(reservation);
     }
 
     /**

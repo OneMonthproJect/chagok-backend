@@ -70,14 +70,16 @@ class ReservationStartControllerTest {
     void startSuccess() throws Exception {
         when(service.start(3L, 5L, new ReservationStartRequest(0, 2019, 41000)))
             .thenReturn(new ReservationResponse(5L, ReservationStatus.IN_PROGRESS, 4L, 1,
-                LocalDateTime.of(2026, 11, 24, 10, 0), null));
+                null, null));
 
         start("/api/reservations/5/start", "{\"version\":0,\"modelYear\":2019,\"mileage\":41000}")
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.success").value(true))
             .andExpect(jsonPath("$.data.reservationId").value(5))
             .andExpect(jsonPath("$.data.status").value("IN_PROGRESS"))
+            .andExpect(jsonPath("$.data.vehicleId").value(4))
             .andExpect(jsonPath("$.data.version").value(1))
+            .andExpect(jsonPath("$.data.reservedAt").doesNotExist())
             .andExpect(jsonPath("$.error").isEmpty());
         verify(service).start(3L, 5L, new ReservationStartRequest(0, 2019, 41000));
     }

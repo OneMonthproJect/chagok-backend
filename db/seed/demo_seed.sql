@@ -8,12 +8,12 @@
 --   - 날짜는 모두 오늘(@today, 서울 날짜) 기준 상대값. created_at·updated_at 은 DB 기본값이 없으므로 모든 행에 직접 넣는다
 --   - 시연 계정 비밀번호는 BCrypt 해시로만 넣는다 (평문 없음). password_change_required = FALSE
 --   - 상태(미확인/여유/임박/도래)는 저장하지 않는다. 기록 날짜로 결과가 나온다
---   - V2 칼럼 중 maintenance_record.updated_at 만 채운다 (created_at 과 같은 값). 점검 결과("주의")·진행중 예약은 아직 넣지 않는다 (07 7.2·7.3)
+--   - V2 칼럼: maintenance_record.updated_at(created_at 과 같은 값), 33아0008 점검 결과 CAUTION + 메모, shop.brn·shop_address(가짜 값), 진행중 예약 1건 (07 7.1~7.3)
 --
 -- id 순서: 빈 DB에 이 순서로 넣으면 08 JSON 예시의 id와 같다
 --   shop 1 차곡카센터(A) · 2 바른카센터(B) / staff 1 owner_a · 2 mech_a · 3 owner_b
 --   service_item A 1~6 · B 7~12 (기본 기준표 순서) / customer A 1~10 · B 11 / vehicle A 1~11 · B 12
---   reservation 1 78라0004 · 2 22사0007 · 3 34나0002 · 4 55차0010
+--   reservation 1 78라0004 · 2 22사0007 · 3 34나0002 · 4 55차0010 · 5 90마0005 (진행중)
 --
 -- 07에 값이 없어 시드에서 고른 것 (💡)
 --   - 정비 기록의 담당 정비사(staff_id): A 정비소 기록은 mech_a, B 정비소 기록은 owner_b
@@ -29,11 +29,11 @@
 --   90마0005 정우성   전부 미확인                                      대상 ×
 --   11바0006 한가람   엔진오일 도래 (거절은 기준이 아님)                 대상 ○
 --   22사0007 서민준   에어컨필터 여유 (외부 기록으로 재시작)             대상 ×
---   33아0008 윤하늘   타이어 임박 (점검은 기준이 아님)                   대상 ○
+--   33아0008 윤하늘   타이어 임박 (점검 "주의"는 기준이 아님)                 대상 ○
 --   44자0009 장미래   엔진오일 도래, 동의 N                             대상 × (미동의)
 --   55차0010 오세훈   배터리 임박, 방문 3회                              대상 ○
 --   66카0011 오세훈   전부 미확인 (한 고객 여러 차량)                    대상 ×
--- 7.5 기대값: 오늘 예약 2건, 오늘 연락할 고객 5명, 재점검 대상 6대, A 고객 10명·차량 11대
+-- 7.5 기대값: 오늘 예약 3건, 오늘 연락할 고객 5명, 재점검 대상 6대, A 고객 10명·차량 11대
 
 -- 오늘(D) = 서울 날짜 (앱의 오늘과 같음). CURDATE()는 MySQL 세션 시간대를 따르므로 쓰지 않는다 (07 7장, chagok-docs#110)
 SET @today = DATE(CONVERT_TZ(UTC_TIMESTAMP(), '+00:00', '+09:00'));
@@ -49,11 +49,12 @@ INSERT INTO platform_admin (login_id, password_hash, name, created_at)
 VALUES ('admin', @pw, '운영관리자', @created_shop);
 
 -- 시드 정비소는 created_by_admin_id 가 NULL (07 3.2)
-INSERT INTO shop (name, phone, status, created_by_admin_id, created_at)
-VALUES ('차곡카센터', '02-0000-0001', 'ACTIVE', NULL, @created_shop);
+-- brn(사업자등록번호)·shop_address(주소)는 시연용 가짜 값이다. 실제 번호·주소를 쓰지 않는다 (V2, 07 3.2·7.1)
+INSERT INTO shop (name, phone, brn, shop_address, status, created_by_admin_id, created_at)
+VALUES ('차곡카센터', '02-0000-0001', '000-00-00001', '서울특별시 시연구 차곡로 1 (시연용)', 'ACTIVE', NULL, @created_shop);
 SET @shop_a = LAST_INSERT_ID();
-INSERT INTO shop (name, phone, status, created_by_admin_id, created_at)
-VALUES ('바른카센터', '02-0000-0002', 'ACTIVE', NULL, @created_shop);
+INSERT INTO shop (name, phone, brn, shop_address, status, created_by_admin_id, created_at)
+VALUES ('바른카센터', '02-0000-0002', '000-00-00002', '서울특별시 시연구 바른로 2 (시연용)', 'ACTIVE', NULL, @created_shop);
 SET @shop_b = LAST_INSERT_ID();
 
 INSERT INTO staff (shop_id, login_id, password_hash, name, role, password_change_required, created_at)
@@ -229,13 +230,13 @@ SET @d = @today - INTERVAL 1 MONTH;
 INSERT INTO maintenance_record (shop_id, vehicle_id, service_item_id, visit_key, record_date, mileage, record_type, source, staff_id, memo, created_at, updated_at)
 VALUES (@shop_a, @v_22sa, @a_ac_filter, '5eed0000-0000-4000-8000-000000000009', @d, NULL, 'EXTERNAL', 'CUSTOMER_STATEMENT', @mech_a, NULL, TIMESTAMP(@d, '11:00:00'), TIMESTAMP(@d, '11:00:00'));
 
--- 33아0008: 타이어 교체 D-6M+20d, 타이어 점검 D-2M → 타이어 임박 (점검 결과 "주의"·메모는 V2 이후)
+-- 33아0008: 타이어 교체 D-6M+20d, 타이어 점검 D-2M(결과 "주의" + 메모) → 타이어 임박 (점검은 기준이 아님)
 SET @d = @today - INTERVAL 6 MONTH + INTERVAL 20 DAY;
 INSERT INTO maintenance_record (shop_id, vehicle_id, service_item_id, visit_key, record_date, mileage, record_type, source, staff_id, memo, created_at, updated_at)
 VALUES (@shop_a, @v_33a, @a_tire, '5eed0000-0000-4000-8000-000000000010', @d, NULL, 'REPLACE', 'SHOP', @mech_a, NULL, TIMESTAMP(@d, '11:00:00'), TIMESTAMP(@d, '11:00:00'));
 SET @d = @today - INTERVAL 2 MONTH;
-INSERT INTO maintenance_record (shop_id, vehicle_id, service_item_id, visit_key, record_date, mileage, record_type, source, staff_id, memo, created_at, updated_at)
-VALUES (@shop_a, @v_33a, @a_tire, '5eed0000-0000-4000-8000-000000000011', @d, NULL, 'INSPECT', 'SHOP', @mech_a, NULL, TIMESTAMP(@d, '11:00:00'), TIMESTAMP(@d, '11:00:00'));
+INSERT INTO maintenance_record (shop_id, vehicle_id, service_item_id, visit_key, record_date, mileage, record_type, inspect_result, source, staff_id, memo, created_at, updated_at)
+VALUES (@shop_a, @v_33a, @a_tire, '5eed0000-0000-4000-8000-000000000011', @d, NULL, 'INSPECT', 'CAUTION', 'SHOP', @mech_a, '타이어 트레드 마모 진행, 다음 방문 때 교체 권장', TIMESTAMP(@d, '11:00:00'), TIMESTAMP(@d, '11:00:00'));
 
 -- 44자0009: 엔진오일 교체 D-7M → 엔진오일 도래, 동의 N이라 대상 목록에 없음
 SET @d = @today - INTERVAL 7 MONTH;
@@ -263,7 +264,7 @@ INSERT INTO maintenance_record (shop_id, vehicle_id, service_item_id, visit_key,
 VALUES (@shop_b, @v_b_12ga, @b_engine_oil, '5eed0000-0000-4000-8000-000000000016', @d, NULL, 'REPLACE', 'SHOP', @owner_b, NULL, TIMESTAMP(@d, '11:00:00'), TIMESTAMP(@d, '11:00:00'));
 
 -- ---------------------------------------------------------------------
--- 7.3 A 정비소 예약 4건 (30분 단위·초 00, 상태 RESERVED만 — V1). 담당 = 등록자
+-- 7.3 A 정비소 예약 5건 (30분 단위·초 00, RESERVED 4건 + IN_PROGRESS 1건 — V2). 담당 = 등록자
 -- ---------------------------------------------------------------------
 -- 1) 78라0004 오늘 10:00, 엔진오일, 담당 mech_a — 오늘 예약, 시나리오 B 시작점
 SET @at = TIMESTAMP(@today, '10:00:00');
@@ -297,3 +298,13 @@ VALUES (@shop_a, @v_55cha, @at, 'RESERVED', FALSE, NULL, @owner_a, @owner_a, 0,
 SET @r4 = LAST_INSERT_ID();
 INSERT INTO reservation_item (shop_id, reservation_id, service_item_id, created_at)
 VALUES (@shop_a, @r4, @a_battery, TIMESTAMP(DATE(@at) - INTERVAL 3 DAY, '09:00:00'));
+
+-- 5) 90마0005 오늘 09:00, 엔진오일, 담당 mech_a, 상태 진행중(IN_PROGRESS, V2) — 오늘 예약 3건째 (홈 "오늘 예약"·캘린더 건수는 취소만 뺀다)
+--    90마0005는 재점검 대상이 아니라 "연락할 고객 5명"·"대상 6대"는 그대로. mech_a의 10:00 예약과 시각이 겹치지 않는다
+SET @at = TIMESTAMP(@today, '09:00:00');
+INSERT INTO reservation (shop_id, vehicle_id, reserved_at, status, purpose_other, purpose_memo, assignee_staff_id, created_by_staff_id, version, created_at, updated_at)
+VALUES (@shop_a, @v_90ma, @at, 'IN_PROGRESS', FALSE, NULL, @mech_a, @mech_a, 0,
+        TIMESTAMP(DATE(@at) - INTERVAL 3 DAY, '09:00:00'), TIMESTAMP(DATE(@at) - INTERVAL 3 DAY, '09:00:00'));
+SET @r5 = LAST_INSERT_ID();
+INSERT INTO reservation_item (shop_id, reservation_id, service_item_id, created_at)
+VALUES (@shop_a, @r5, @a_engine_oil, TIMESTAMP(DATE(@at) - INTERVAL 3 DAY, '09:00:00'));

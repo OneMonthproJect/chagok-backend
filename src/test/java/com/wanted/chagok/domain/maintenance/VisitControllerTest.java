@@ -60,11 +60,11 @@ class VisitControllerTest {
         VisitRef visit = new VisitRef("5eed0000-0000-4000-8000-000000000015", LocalDate.parse("2026-10-24"), null, "김정비",
             List.of(
                 new VisitRef.VisitRecord(16, 1, "엔진오일", "REPLACE", LocalDate.parse("2026-10-24"), null,
-                    "SHOP", null, 0, false, new VisitRef.RecordStaff(2, "김정비")),
+                    "SHOP", null, 0, false, new VisitRef.RecordStaff(2, "김정비"), null),
                 new VisitRef.VisitRecord(17, 5, "타이어", "INSPECT", LocalDate.parse("2026-10-24"), "앞 타이어 마모",
-                    "SHOP", "CAUTION", 2, true, new VisitRef.RecordStaff(2, "김정비")),
+                    "SHOP", "CAUTION", 2, true, new VisitRef.RecordStaff(2, "김정비"), 52000),
                 new VisitRef.VisitRecord(18, 2, "에어클리너", "EXTERNAL", LocalDate.parse("2026-06-01"), null,
-                    "CUSTOMER_STATEMENT", null, 0, false, new VisitRef.RecordStaff(2, "김정비"))));
+                    "CUSTOMER_STATEMENT", null, 0, false, new VisitRef.RecordStaff(2, "김정비"), null)));
         when(maintenanceService.listVisits(eq(1L), eq(4L), any(PageLimit.class)))
             .thenReturn(new VisitListResponse(List.of(visit), 0, 20, 3, 1));
 
@@ -90,6 +90,11 @@ class VisitControllerTest {
             .andExpect(jsonPath("$.data.items[0].records[1].inspectResult").value("CAUTION"))
             .andExpect(jsonPath("$.data.items[0].records[2].source").value("CUSTOMER_STATEMENT"))
             .andExpect(jsonPath("$.data.items[0].records[2].inspectResult").isEmpty())
+            // 08 11·17 (chagok-docs#174): 기록별 mileage는 키가 항상 있고 값이 없으면 null(0 아님), 필드 순서는 staff 다음
+            .andExpect(jsonPath("$.data.items[0].records[0].mileage").hasJsonPath())
+            .andExpect(jsonPath("$.data.items[0].records[0].mileage").isEmpty())
+            .andExpect(jsonPath("$.data.items[0].records[1].mileage").value(52000))
+            .andExpect(jsonPath("$.data.items[0].records[2].mileage").isEmpty())
             .andExpect(jsonPath("$.data.page").value(0))
             .andExpect(jsonPath("$.data.size").value(20))
             .andExpect(jsonPath("$.data.totalElements").value(3))

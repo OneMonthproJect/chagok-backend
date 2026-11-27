@@ -2,6 +2,7 @@ package com.wanted.chagok.domain.maintenance;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.tuple;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.verify;
@@ -164,6 +165,30 @@ class MaintenanceServiceTest {
         VisitListResponse beyond = service().listVisits(SHOP, VEHICLE, PageLimit.of(9, 1));
         assertThat(beyond.items()).isEmpty();
         assertThat(beyond.totalElements()).isEqualTo(3);
+    }
+
+    @Test
+    @DisplayName("API 11·17: records[].mileage는 그 행의 값 그대로(외부 null은 null, 0으로 바꾸지 않음), 방문 mileage는 외부가 아닌 행 id 순 첫 non-null (chagok-docs#174)")
+    void listVisits_mapsRecordMileage() {
+        when(repository.findByShopIdAndVehicleId(SHOP, VEHICLE)).thenReturn(List.of(
+            record(1, "v", 1, "2026-10-24", null, RecordType.REPLACE, "2026-10-24T10:00:00"),
+            record(2, "v", 2, "2026-10-24", 52_000, RecordType.INSPECT, "2026-10-24T10:00:00"),
+            record(3, "v", 2, "2026-10-24", 53_000, RecordType.REPLACE, "2026-10-24T10:00:00"),
+            record(4, "e", 1, "2026-06-01", 40_000, RecordType.EXTERNAL, "2026-10-25T10:00:00"),
+            record(5, "e", 2, "2026-06-01", null, RecordType.EXTERNAL, "2026-10-25T10:00:00")));
+        stubItems();
+        when(staff.findNames(SHOP, Set.of(11L))).thenReturn(Map.of(11L, "김정비"));
+
+        VisitListResponse result = service().listVisits(SHOP, VEHICLE, PageLimit.of(null, null));
+
+        List<VisitRef.VisitRecord> all = result.items().stream().flatMap(v -> v.records().stream()).toList();
+        assertThat(all).extracting(VisitRef.VisitRecord::recordId, VisitRef.VisitRecord::mileage)
+            .containsExactlyInAnyOrder(tuple(1L, null), tuple(2L, 52_000), tuple(3L, 53_000), tuple(4L, 40_000), tuple(5L, null));
+        // 방문 mileage: 외부가 아닌 행(1·2·3)을 id 순으로 보아 처음 non-null = 기록 2의 값. 외부만 있는 묶음은 그 기록 기준(4)
+        assertThat(result.items()).filteredOn(v -> v.visitKey().equals("v")).singleElement()
+            .satisfies(v -> assertThat(v.mileage()).isEqualTo(52_000));
+        assertThat(result.items()).filteredOn(v -> v.visitKey().equals("e")).singleElement()
+            .satisfies(v -> assertThat(v.mileage()).isEqualTo(40_000));
     }
 
     @Test

@@ -462,10 +462,6 @@ public class ReservationService implements ReservationReader {
             });
     }
 
-    /** 정정(API 40)의 대상 상태 (08 40번). 예약·진행중으로 정정하는 것은 허용표에 없다. */
-    private static final Set<ReservationStatus> CORRECTABLE_STATUSES =
-        Set.of(ReservationStatus.COMPLETED, ReservationStatus.CANCELED, ReservationStatus.NO_SHOW);
-
     /**
      * API 40 지난 예약 정정 (04 F-RSV-10, R25~R29, X14, D-53). 순서(08 7.1 40번): 형식(400: 정정할 수 없는 상태 값) → 정비소 소유
      * (404) → 끝난 예약인지(409) → {@code version}(409) → 권한({@link ReservationCorrectionPolicy}, 403) → 지금 값과 같은 필드를
@@ -476,7 +472,7 @@ public class ReservationService implements ReservationReader {
     @Transactional
     public ReservationResponse correct(LoginStaff staff, long reservationId, ReservationCorrectRequest request) {
         ReservationStatus target = request.status();
-        if (target != null && !CORRECTABLE_STATUSES.contains(target)) {
+        if (target != null && !Reservation.isCorrectTarget(target)) {
             throw BusinessException.invalidField("status", "정정할 수 있는 상태는 완료·취소·노쇼입니다.");
         }
         long shopId = staff.shopId();

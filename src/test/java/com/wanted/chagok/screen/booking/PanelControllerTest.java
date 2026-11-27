@@ -70,7 +70,7 @@ class PanelControllerTest {
             new PanelResponse.VehicleBlock(10L, "55차0010", "쏘나타", 2018, 97000),
             List.of(new VisitRef("5eed-15", LocalDate.of(2026, 10, 24), null, "김정비", List.of(
                 new VisitRef.VisitRecord(16L, 1L, "엔진오일", "REPLACE", LocalDate.of(2026, 10, 24), null,
-                    0, false, new VisitRef.RecordStaff(2L, "김정비"))))),
+                    "SHOP", null, 0, false, new VisitRef.RecordStaff(2L, "김정비"))))),
             3L,
             List.of(new PanelResponse.ItemStatusBlock(6L, "BATTERY", "배터리", ItemStatus.SOON, null,
                 new BaseRecord(LocalDate.of(2023, 12, 14), null, "REPLACE"), LocalDate.of(2026, 12, 14), null,
@@ -99,6 +99,8 @@ class PanelControllerTest {
             .andExpect(jsonPath("$.data.vehicle.latestMileage").value(97000))
             .andExpect(jsonPath("$.data.recentVisits[0].visitKey").value("5eed-15"))
             .andExpect(jsonPath("$.data.recentVisits[0].records[0].itemName").value("엔진오일"))
+            .andExpect(jsonPath("$.data.recentVisits[0].records[0].source").value("SHOP"))
+            .andExpect(jsonPath("$.data.recentVisits[0].records[0].inspectResult").isEmpty())
             .andExpect(jsonPath("$.data.totalVisitCount").value(3))
             .andExpect(jsonPath("$.data.itemStatuses[0].status").value("SOON"))
             .andExpect(jsonPath("$.data.itemStatuses[0].baseRecord.date").value("2023-12-14"))

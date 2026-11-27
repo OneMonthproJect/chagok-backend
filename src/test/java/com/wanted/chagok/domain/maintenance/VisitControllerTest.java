@@ -58,8 +58,13 @@ class VisitControllerTest {
     @DisplayName("11: 토큰의 shopId·경로의 vehicleId로 조회하고 08 모양으로 응답")
     void list_usesTokenShopAndReturnsSpecShape() throws Exception {
         VisitRef visit = new VisitRef("5eed0000-0000-4000-8000-000000000015", LocalDate.parse("2026-10-24"), null, "김정비",
-            List.of(new VisitRef.VisitRecord(16, 1, "엔진오일", "REPLACE", LocalDate.parse("2026-10-24"), null,
-                0, false, new VisitRef.RecordStaff(2, "김정비"))));
+            List.of(
+                new VisitRef.VisitRecord(16, 1, "엔진오일", "REPLACE", LocalDate.parse("2026-10-24"), null,
+                    "SHOP", null, 0, false, new VisitRef.RecordStaff(2, "김정비")),
+                new VisitRef.VisitRecord(17, 5, "타이어", "INSPECT", LocalDate.parse("2026-10-24"), "앞 타이어 마모",
+                    "SHOP", "CAUTION", 2, true, new VisitRef.RecordStaff(2, "김정비")),
+                new VisitRef.VisitRecord(18, 2, "에어클리너", "EXTERNAL", LocalDate.parse("2026-06-01"), null,
+                    "CUSTOMER_STATEMENT", null, 0, false, new VisitRef.RecordStaff(2, "김정비"))));
         when(maintenanceService.listVisits(eq(1L), eq(4L), any(PageLimit.class)))
             .thenReturn(new VisitListResponse(List.of(visit), 0, 20, 3, 1));
 
@@ -77,6 +82,14 @@ class VisitControllerTest {
             .andExpect(jsonPath("$.data.items[0].records[0].type").value("REPLACE"))
             .andExpect(jsonPath("$.data.items[0].records[0].date").value("2026-10-24"))
             .andExpect(jsonPath("$.data.items[0].records[0].memo").isEmpty())
+            // 08 11 (#110 PR-B): source는 항상, inspectResult는 점검 결과가 있을 때만 값, 아니면 키는 있고 null
+            .andExpect(jsonPath("$.data.items[0].records[0].source").value("SHOP"))
+            .andExpect(jsonPath("$.data.items[0].records[0].inspectResult").hasJsonPath())
+            .andExpect(jsonPath("$.data.items[0].records[0].inspectResult").isEmpty())
+            .andExpect(jsonPath("$.data.items[0].records[1].source").value("SHOP"))
+            .andExpect(jsonPath("$.data.items[0].records[1].inspectResult").value("CAUTION"))
+            .andExpect(jsonPath("$.data.items[0].records[2].source").value("CUSTOMER_STATEMENT"))
+            .andExpect(jsonPath("$.data.items[0].records[2].inspectResult").isEmpty())
             .andExpect(jsonPath("$.data.page").value(0))
             .andExpect(jsonPath("$.data.size").value(20))
             .andExpect(jsonPath("$.data.totalElements").value(3))

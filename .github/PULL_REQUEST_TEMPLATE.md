@@ -15,7 +15,7 @@ Closes #
 
 ## 문서 PR (chagok-docs)
 - 문서 PR: OneMonthproJect/chagok-docs#
-- [ ] 문서 변경 없음 (명세와 같은 동작)
+- [ ] 문서 변경 없음 (명세와 같은 동작) — CONTRIBUTING 7장 「변경 유형별 문서 확인」을 봤고, 이 레포 안 문서(README·design 등)는 필요하면 이 PR에서 함께 고쳤다
 - [ ] 마이그레이션 추가 → 07 ERD 문서 PR (이미 있는 버전 파일은 고치지 않음)
 - [ ] API 요청·응답·에러 코드 변경 → 08 표·JSON 예시 문서 PR, 프론트 담당에게 공유함
 
@@ -47,7 +47,8 @@ Closes #
 
 ## AI 사용
 - [ ] 없음
-- [ ] 있음 → chagok-docs `docs/etc/AI_USAGE`에 기록함 (사용한 스킬·에이전트: )
+- [ ] 있음 → 아래에 기록 한 줄 (docs `AI_USAGE`에는 하루 단위로 통합, CONTRIBUTING 5장 「AI 사용 기록」)
+  - `| 날짜 | 레포#이슈 | 스킬·에이전트 | 한 일 | 사람이 바꾼 것 |`
 - [ ] AI가 구현 전에 계획을 보고했고, 내가 확인한 뒤 구현했다 (`ai-rules.md` 작업 절차)
 - [ ] AI의 "완료" 보고를 실제 빌드·테스트 결과로 확인했다
 - [ ] 커밋·본문에 AI 공동 작성자 표기가 없다 (AI 이름을 넣은 Co-authored-by 트레일러, AI 메일 주소, AI 생성 안내 문구 — CONTRIBUTING 4장)

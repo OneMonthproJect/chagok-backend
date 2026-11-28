@@ -59,6 +59,16 @@ class ErrorDispatchDbTest {
     }
 
     @Test
+    @DisplayName("인증된 요청 + Accept: application/xml + 있는 API(36) → 403이 아니라 400 INVALID_INPUT JSON (재현 1을 실제 서블릿 컨테이너·보안 필터로, 08 0.3 406)")
+    void acceptXmlOnExistingApiIsBadRequestJson() throws Exception {
+        HttpResponse<String> res = send("GET", "/api/staff/assignees", "application/xml", ownerToken());
+
+        assertThat(res.statusCode()).isEqualTo(400);
+        assertThat(res.headers().firstValue("Content-Type").orElse("")).contains("application/json");
+        assertThat(res.body()).contains("\"INVALID_INPUT\"");
+    }
+
+    @Test
     @DisplayName("보안 방화벽이 거부하는 경로(//)는 Tomcat이 /error로 넘기는 400이다 → 403으로 바뀌지 않고 공통 응답 모양을 지킨다 (재현 2)")
     void containerLevelErrorKeepsStatus() throws Exception {
         HttpResponse<String> res = send("GET", "/api//vehicles", "application/json", ownerToken());

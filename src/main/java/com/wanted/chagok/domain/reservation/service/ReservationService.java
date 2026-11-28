@@ -234,11 +234,7 @@ public class ReservationService implements ReservationReader {
         ReservationAssignee assignee = requireAssignee(shopId, request.assigneeId());
         long assigneeId = assignee.staffId();
         requireNotPastDate(reservedAt);
-        ReservationRef active = findActiveByVehicleIds(shopId, List.of(vehicleId)).get(vehicleId);
-        if (active != null) {
-            throw new BusinessException(ErrorCode.RESERVATION_ACTIVE_EXISTS,
-                Map.of("reservationId", active.reservationId()));
-        }
+        requireNoActiveReservation(shopId, vehicleId, null);
         requireNoSlotConflict(shopId, assigneeId, reservedAt, null);
 
         ReservationCreateRequest.Purpose purpose = request.purpose();
@@ -369,13 +365,7 @@ public class ReservationService implements ReservationReader {
         if (reservedAt != null) {
             // 근거: 08 19번 — 유효 예약이 둘이 되는 길은 일시를 바꿔 지난 예약을 오늘 이후로 옮기는 것뿐이다.
             // 메모·항목만 바꾸면 유효 여부가 그대로라 검사하지 않는다(지난 예약의 메모가 다른 예약 때문에 막히지 않게).
-            activeCandidates(shopId, List.of(reservation.getVehicleId())).stream()
-                .filter(r -> !r.getId().equals(reservation.getId()))
-                .findFirst()
-                .ifPresent(existing -> {
-                    throw new BusinessException(ErrorCode.RESERVATION_ACTIVE_EXISTS,
-                        Map.of("reservationId", existing.getId()));
-                });
+            requireNoActiveReservation(shopId, reservation.getVehicleId(), reservation.getId());
         }
         if (reservedAt != null || newAssignee != null) {
             // 근거: 08 19번·R18 — 일시나 담당이 바뀌어 같은 담당·같은 시작 시각의 유효 예약과 겹치면 409(자기 자신 제외).
@@ -446,6 +436,20 @@ public class ReservationService implements ReservationReader {
             throw new IllegalStateException("예약 " + reservation.getId() + "의 담당 " + reservation.getAssigneeStaffId() + " 정보가 없다");
         }
         return assignee;
+    }
+
+    /**
+     * 08 16·19번 R3 (D-22·D-52): 같은 차량에 유효 예약({@link #activeCandidates})이 이미 있으면 409
+     * {@code RESERVATION_ACTIVE_EXISTS}와 가장 이른 유효 예약의 번호. 등록과 변경이 이 한 곳을 쓴다.
+     * {@code excludeReservationId}는 변경할 때 자기 자신을 빼려는 값이다(등록은 null). 담당 중복({@link #requireNoSlotConflict})과 짝이다.
+     */
+    private void requireNoActiveReservation(long shopId, long vehicleId, Long excludeReservationId) {
+        activeCandidates(shopId, List.of(vehicleId)).stream()
+            .filter(r -> !r.getId().equals(excludeReservationId))
+            .findFirst()
+            .ifPresent(existing -> {
+                throw new BusinessException(ErrorCode.RESERVATION_ACTIVE_EXISTS, Map.of("reservationId", existing.getId()));
+            });
     }
 
     /**

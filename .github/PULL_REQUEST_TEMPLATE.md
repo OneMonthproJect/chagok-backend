@@ -15,8 +15,7 @@ Closes #
 
 ## 문서 PR (chagok-docs)
 - 문서 PR: OneMonthproJect/chagok-docs#
-- [ ] 변경 유형별 관련 문서를 확인했다 (CONTRIBUTING 7장 「변경 유형별 문서 확인」: 명세·README·design·트러블슈팅·TEST 등) — 고쳤으면 위에 문서 PR, 늦으면 후속 이슈 링크
-- [ ] 문서 변경 없음 — 관련 없음 (명세와 같은 동작)
+- [ ] 문서 변경 없음 (명세와 같은 동작) — CONTRIBUTING 7장 「변경 유형별 문서 확인」을 봤고, 이 레포 안 문서(README·design 등)는 필요하면 이 PR에서 함께 고쳤다
 - [ ] 마이그레이션 추가 → 07 ERD 문서 PR (이미 있는 버전 파일은 고치지 않음)
 - [ ] API 요청·응답·에러 코드 변경 → 08 표·JSON 예시 문서 PR, 프론트 담당에게 공유함
 

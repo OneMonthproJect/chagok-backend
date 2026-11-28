@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -88,9 +89,10 @@ class ItemServiceTest {
     }
 
     @Test
-    @DisplayName("requireActiveItems: 일부가 없거나 비활성이면 400 INVALID_INPUT, field는 넘겨받은 이름")
+    @DisplayName("requireActiveItems: 쓰는 항목 목록에 없는 id(없음·비활성)가 하나라도 있으면 400 INVALID_INPUT, field는 넘겨받은 이름")
     void requireActiveItems_rejectsMissingOrInactive() {
-        when(repository.findByShopIdAndIdIn(anyLong(), any())).thenReturn(List.of(item(1, true), item(2, false)));
+        // 쓰는 항목은 1뿐이다. 3은 없는 항목, 2는 비활성 항목이라 둘 다 이 목록에 없다
+        when(repository.findByShopIdAndActiveTrueOrderBySortOrderAscIdAsc(SHOP)).thenReturn(List.of(item(1, true)));
 
         for (List<Long> ids : List.of(List.of(1L, 3L), List.of(1L, 2L))) {
             assertThatThrownBy(() -> service().requireActiveItems(SHOP, ids, "records[0].itemId"))
@@ -104,9 +106,23 @@ class ItemServiceTest {
     @Test
     @DisplayName("requireActiveItems: 모두 쓰는 항목이면 통과")
     void requireActiveItems_passes() {
-        when(repository.findByShopIdAndIdIn(anyLong(), any())).thenReturn(List.of(item(1, true), item(2, true)));
+        when(repository.findByShopIdAndActiveTrueOrderBySortOrderAscIdAsc(SHOP))
+            .thenReturn(List.of(item(1, true), item(2, true)));
 
         service().requireActiveItems(SHOP, List.of(1L, 2L, 2L), "purpose.itemIds");
+    }
+
+    @Test
+    @DisplayName("requireActiveItems: 요청 id가 많아도 그 정비소의 쓰는 항목만 한 번 읽고, 받은 id로 IN 조회하지 않는다")
+    void requireActiveItems_queryDoesNotGrowWithInput() {
+        when(repository.findByShopIdAndActiveTrueOrderBySortOrderAscIdAsc(SHOP)).thenReturn(List.of(item(1, true)));
+        List<Long> manyIds = java.util.stream.LongStream.rangeClosed(1, 10_000).boxed().toList();
+
+        assertThatThrownBy(() -> service().requireActiveItems(SHOP, manyIds, "purpose.itemIds"))
+            .isInstanceOfSatisfying(BusinessException.class,
+                e -> assertThat(e.code()).isEqualTo(ErrorCode.INVALID_INPUT));
+        verify(repository).findByShopIdAndActiveTrueOrderBySortOrderAscIdAsc(SHOP);
+        verify(repository, never()).findByShopIdAndIdIn(anyLong(), any());
     }
 
     @Test

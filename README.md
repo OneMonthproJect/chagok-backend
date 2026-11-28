@@ -47,7 +47,7 @@ chagok-backend/
 
 ## 실행
 
-준비: JDK 21, DB 담당자가 만든 MySQL 8 DB와 계정. Gradle은 따로 설치하지 않아도 됩니다(Wrapper가 받음).
+준비: JDK 21, 내 PC의 MySQL 8과 그 안에 직접 만든 DB·계정(아래 「로컬 DB 준비」). Gradle은 따로 설치하지 않아도 됩니다(Wrapper가 받음).
 
 ```bash
 cp .env.example .env          # Windows PowerShell: copy .env.example .env  → 값 채우기
@@ -65,9 +65,9 @@ curl http://localhost:8080/actuator/health    # {"status":"UP"}
 
 테스트 리포트: `build/reports/tests/test/index.html`, `build/reports/tests/dbTest/index.html`. SKIPPED(건너뜀)는 "검사 대상이 아직 없어 검증되지 않음"이지 통과가 아닙니다.
 
-### 로컬 DB 준비 (DB 담당자에게 받거나, 내 PC의 MySQL 8에 직접)
+### 로컬 DB 준비 (내 PC의 MySQL 8에 직접)
 
-DB는 용도별로 나눠 씁니다. 같은 DB를 두 용도로 쓰지 않습니다.
+DB는 용도별로 나눠 씁니다. 같은 DB를 두 용도로 쓰지 않습니다. 개발·테스트·시연 DB는 모두 각자 PC의 MySQL에 만들고, 팀이 함께 쓰는 DB는 없습니다. CI는 실행마다 새로 만드는 일회용 MySQL 컨테이너를 씁니다(아래 「CI」).
 
 | 용도 | DB 이름 | 들어가는 것 |
 |---|---|---|
@@ -110,7 +110,7 @@ $env:DB_URL = 'jdbc:mysql://localhost:3306/chagok_test?characterEncoding=UTF-8&s
 |---|---|
 | wrapper | Wrapper 파일이 있는지(없으면 실패), 공식 jar인지(`gradle/actions/wrapper-validation`) |
 | build | `./gradlew build` — 컴파일·DB 없는 테스트. 결과 요약(통과·실패·건너뜀)과 리포트 보관 |
-| db-test | MySQL 8 서비스 + `./gradlew dbTest`(이어서 `tzTest`) — 빈 DB에 Flyway 적용·앱 기동. 결과 요약과 리포트 보관 |
+| db-test | 일회용 MySQL 8 서비스 컨테이너(실행마다 새로 만들고 끝나면 사라짐, CI 전용 값) + `./gradlew dbTest`(이어서 `tzTest`) — 빈 DB에 Flyway 적용·앱 기동. 결과 요약과 리포트 보관 |
 
 pr-check는 여기에 더해 **비밀값**(`.github/scripts/secret-scan.sh`)과 **DB·Flyway 규칙**(`.github/scripts/db-rules.sh`)을 검사합니다. 실패(❌)한 PR은 머지하지 않습니다(GitHub Free 운영이라 자동으로 막히지 않음, CONTRIBUTING 5장).
 
@@ -121,8 +121,8 @@ pr-check는 여기에 더해 **비밀값**(`.github/scripts/secret-scan.sh`)과 
 | 이름 | 예 | 설명 |
 |---|---|---|
 | `DB_URL` | `jdbc:mysql://localhost:3306/chagok?characterEncoding=UTF-8&serverTimezone=Asia/Seoul` | 개발 DB. `dbTest`는 실행할 때 테스트 DB로 바꿈(위) |
-| `DB_USERNAME` | | DB 담당자에게 받음 |
-| `DB_PASSWORD` | | DB 담당자에게 받음 |
+| `DB_USERNAME` | `chagok` | 각자 로컬 MySQL에 생성한 DB 계정 이름(위 「로컬 DB 준비」의 `CREATE USER`) |
+| `DB_PASSWORD` | | 그 계정의 비밀번호. 각자 정하고 공유·커밋하지 않는다 |
 | `JWT_SECRET` | `openssl rand -base64 48`로 만든 값 | JWT 서명 키(HS256). **32바이트 이상**, 없거나 짧으면 서버가 뜨지 않는다. 각자 로컬에서 만들고 공유·커밋하지 않는다. CI db-test는 실행마다 새로 만든다 |
 
 공개 레포이므로 실제 값은 어디에도 커밋하지 않습니다. `dbTest`도 앱을 띄우므로 `JWT_SECRET`이 필요합니다.
@@ -152,7 +152,7 @@ pr-check는 여기에 더해 **비밀값**(`.github/scripts/secret-scan.sh`)과 
 3. 최초 마이그레이션(`V1__init.sql`)은 ERD(07) 확정 뒤 DB 담당자가 작성한다.
 4. **`develop`에 들어간 마이그레이션 파일은 고치지 않는다.** 바꿀 게 있으면 새 버전 파일을 더한다(pr-check가 막음). 아직 머지 안 된 내 PR의 파일은 고쳐도 된다.
 5. 파일 이름: `V{번호}__{설명}.sql` (예: `V1__init.sql`, `V2__add_inspect_result.sql`). 번호는 머지 순서대로, 겹치면 나중에 머지하는 쪽이 올린다.
-6. 실제 DB 생성·변경(DB·계정 만들기, 운영 DB 반영)은 DB 담당자가 한다.
+6. 개발·테스트·시연 DB와 계정은 각자 내 PC의 MySQL에 직접 만든다(「로컬 DB 준비」, 시연 DB는 `db/seed/README.md`). 팀이 함께 쓰는 DB는 없다. 스키마는 DB에서 직접 바꾸지 않고 마이그레이션 PR로만 바꾸며, `db/`·`src/main/resources/db/` 변경은 DB관리가 리뷰한다(CODEOWNERS). 운영 DB를 두게 되면 그 생성·반영은 DB관리가 한다.
 7. 확정되지 않은 P1·P2 기능의 테이블·컬럼은 미리 만들지 않는다(00, 07 4장).
 8. 마이그레이션을 바꾸는 PR은 `chagok-docs`의 07 문서 PR 링크가 필요하다(CONTRIBUTING 7장).
 9. 시연 데이터는 `db/seed/demo_seed.sql`에만 두고, 시연 전용 DB(`chagok_demo` 💡)에 `db/seed/run-demo-seed.sh`로만 넣는다. 서버 실행 때 자동으로 들어가지 않는다. 개발·운영 DB의 데이터를 지우지 않는다.

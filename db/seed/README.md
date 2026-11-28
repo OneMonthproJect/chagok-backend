@@ -15,7 +15,7 @@
    - Flyway가 적용된 DB다(`flyway_schema_history` 테이블이 있다)
    - `shop` 테이블이 비어 있다(이미 데이터가 있는 DB에 덮어쓰지 않는다)
 3. 시드 SQL은 `DELETE`·`TRUNCATE`·`DROP`을 쓰지 않는다. 다시 넣고 싶으면 시연 DB를 지우고 새로 만든다(아래 순서).
-4. 날짜는 오늘 기준 상대값(`CURDATE() - INTERVAL …`)으로 쓴다. 기대값은 `chagok-docs/docs/07` 7장.
+4. 날짜는 오늘 기준 상대값(`@today - INTERVAL …`)으로 쓴다. 오늘(`@today`)은 서울 날짜 `DATE(CONVERT_TZ(UTC_TIMESTAMP(), '+00:00', '+09:00'))`이고, MySQL 세션 시간대를 따르는 `CURDATE()`는 쓰지 않는다(07 7장, chagok-docs#110·#114). 기대값은 `chagok-docs/docs/07` 7장.
 5. 시연 계정(사장·정비사·관리자)의 비밀번호는 `1234`이고 BCrypt 해시로 넣는다. 첫 로그인 비밀번호 변경을 강제하지 않는다(`password_change_required = false`). 이 계정은 시연 DB에만 있고, 운영 코드·마이그레이션에는 넣지 않는다.
 6. 테이블·컬럼은 만들지 않는다. 구조는 Flyway 마이그레이션만 만든다.
 

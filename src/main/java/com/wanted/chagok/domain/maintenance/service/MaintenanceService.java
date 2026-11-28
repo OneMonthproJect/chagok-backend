@@ -473,8 +473,9 @@ public class MaintenanceService implements MaintenanceReader {
                         // 근거: (shop_id, service_item_id) 복합 FK로 항목은 항상 존재한다. ""는 방어용이다.
                         itemRefs.containsKey(r.getServiceItemId()) ? itemRefs.get(r.getServiceItemId()).name() : "",
                         r.getRecordType().name(), r.getRecordDate(), r.getMemo(),
+                        r.getSource(), r.getInspectResult(),
                         r.getVersion(), originalStaff.containsKey(r.getId()),
-                        new VisitRef.RecordStaff(r.getStaffId(), staffNames.getOrDefault(r.getStaffId(), ""))))
+                        new VisitRef.RecordStaff(r.getStaffId(), staffNames.getOrDefault(r.getStaffId(), "")), r.getMileage()))
                     .toList()))
             .toList();
     }

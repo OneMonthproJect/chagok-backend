@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -11,19 +12,25 @@ import com.wanted.chagok.global.response.ApiResponse;
 import com.wanted.chagok.global.web.PageLimit;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
+import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.dao.OptimisticLockingFailureException;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
+import org.springframework.web.HttpMediaTypeNotAcceptableException;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.server.ResponseStatusException;
 
 /**
  * 전역 처리기 → 08 0.2 모양·0.3 코드. 보안 필터 없이 MVC만 띄운다(DB 없음). 테스트 전용 Controller로 예외를 만든다.
@@ -128,6 +135,63 @@ class GlobalExceptionHandlerTest {
     }
 
     @Test
+    @DisplayName("Accept가 JSON이 아니어도(406 상황) 오류는 JSON 공통 응답으로 나가고 원래 상태 코드를 지킨다 (#17)")
+    void errorBodyIgnoresAcceptHeader() throws Exception {
+        // 처리기가 응답을 쓰지 못해 /error로 넘어가면 보안 필터가 403으로 바꾼다 — Content-Type을 고정해 협상에서 빠진다
+        mvc.perform(get("/probe/business").accept(MediaType.APPLICATION_XML))
+            .andExpect(status().isConflict())
+            .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
+            .andExpect(jsonPath("$.error.code").value("RESERVATION_ACTIVE_EXISTS"));
+        mvc.perform(get("/probe/boom").accept(MediaType.APPLICATION_XML))
+            .andExpect(status().isInternalServerError())
+            .andExpect(jsonPath("$.error.code").value("INTERNAL_ERROR"));
+    }
+
+    @Test
+    @DisplayName("Controller가 던진 406(Accept 협상 실패) → 400 INVALID_INPUT, 405·415와 같은 규칙 (#17)")
+    void notAcceptable() throws Exception {
+        mvc.perform(get("/probe/not-acceptable").accept(MediaType.APPLICATION_XML))
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.error.code").value("INVALID_INPUT"))
+            .andExpect(jsonPath("$.error.fieldErrors").isEmpty());
+    }
+
+    @Test
+    @DisplayName("AccessDeniedException → 403 FORBIDDEN (500으로 바뀌지 않는다), 메시지는 응답에 없다 (#17)")
+    void accessDenied() throws Exception {
+        String body = mvc.perform(get("/probe/denied"))
+            .andExpect(status().isForbidden())
+            .andExpect(jsonPath("$.error.code").value("FORBIDDEN"))
+            .andReturn().getResponse().getContentAsString();
+        assertThat(body).doesNotContain("secret-reason");
+    }
+
+    @Test
+    @DisplayName("ResponseStatusException → 그 상태 (400·403·404는 해당 코드, 그 밖 4xx는 INVALID_INPUT, 5xx는 INTERNAL_ERROR), reason은 응답에 없다 (#17)")
+    void responseStatusException() throws Exception {
+        mvc.perform(get("/probe/status/404"))
+            .andExpect(status().isNotFound())
+            .andExpect(jsonPath("$.error.code").value("NOT_FOUND"));
+        mvc.perform(get("/probe/status/403"))
+            .andExpect(status().isForbidden())
+            .andExpect(jsonPath("$.error.code").value("FORBIDDEN"));
+        mvc.perform(get("/probe/status/401"))
+            .andExpect(status().isUnauthorized())
+            .andExpect(jsonPath("$.error.code").value("AUTH_REQUIRED"));
+        mvc.perform(get("/probe/status/400"))
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.error.code").value("INVALID_INPUT"));
+        mvc.perform(get("/probe/status/422"))
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.error.code").value("INVALID_INPUT"));
+        String body = mvc.perform(get("/probe/status/503"))
+            .andExpect(status().isInternalServerError())
+            .andExpect(jsonPath("$.error.code").value("INTERNAL_ERROR"))
+            .andReturn().getResponse().getContentAsString();
+        assertThat(body).doesNotContain("reason-text");
+    }
+
+    @Test
     @DisplayName("없는 경로 → 404 NOT_FOUND")
     void unknownPath() throws Exception {
         mvc.perform(get("/probe/nothing-here"))
@@ -170,6 +234,21 @@ class GlobalExceptionHandlerTest {
         @GetMapping("/probe/boom")
         ApiResponse<Void> boom() {
             throw new IllegalStateException("select * from staff where password = 'x'");
+        }
+
+        @GetMapping("/probe/not-acceptable")
+        ApiResponse<Void> notAcceptable() throws HttpMediaTypeNotAcceptableException {
+            throw new HttpMediaTypeNotAcceptableException(List.of(MediaType.APPLICATION_JSON));
+        }
+
+        @GetMapping("/probe/denied")
+        ApiResponse<Void> denied() {
+            throw new AccessDeniedException("secret-reason");
+        }
+
+        @GetMapping("/probe/status/{code}")
+        ApiResponse<Void> status(@PathVariable int code) {
+            throw new ResponseStatusException(HttpStatus.valueOf(code), "reason-text");
         }
 
         @GetMapping("/probe/constraint")

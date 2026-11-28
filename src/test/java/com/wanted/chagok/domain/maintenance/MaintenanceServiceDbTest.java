@@ -93,6 +93,31 @@ class MaintenanceServiceDbTest {
     }
 
     @Test
+    @DisplayName("API 11·17(#110 PR-B): source·inspectResult가 DB 값 그대로 — 점검 CAUTION, 교체는 null, 외부는 CUSTOMER_STATEMENT")
+    void listVisits_carriesSourceAndInspectResult() {
+        jdbc.update("UPDATE maintenance_record SET inspect_result = 'CAUTION' WHERE visit_key = ? AND record_type = 'INSPECT'", KEY_NEW);
+        // 옛 방문에 양호(GOOD) 점검 한 건을 더한다
+        insertRecord(shopA, vehicleA, filter, KEY_OLD, "2026-05-14", null, "INSPECT", "SHOP", staffA, "2026-05-14 10:00:00", null);
+        jdbc.update("UPDATE maintenance_record SET inspect_result = 'GOOD' WHERE visit_key = ? AND record_type = 'INSPECT'", KEY_OLD);
+
+        VisitListResponse result = service.listVisits(shopA, vehicleA, PageLimit.of(null, null));
+
+        VisitRef latest = result.items().get(0);
+        assertThat(latest.records()).extracting(VisitRef.VisitRecord::type).containsExactly("REPLACE", "INSPECT");
+        assertThat(latest.records()).extracting(VisitRef.VisitRecord::source).containsExactly("SHOP", "SHOP");
+        assertThat(latest.records()).extracting(VisitRef.VisitRecord::inspectResult).containsExactly(null, "CAUTION");
+        VisitRef old = result.items().get(1);
+        assertThat(old.records()).extracting(VisitRef.VisitRecord::type).containsExactly("REPLACE", "INSPECT");
+        assertThat(old.records()).extracting(VisitRef.VisitRecord::inspectResult).containsExactly(null, "GOOD");
+        VisitRef external = result.items().get(2);
+        assertThat(external.records()).extracting(VisitRef.VisitRecord::source).containsExactly("CUSTOMER_STATEMENT");
+        assertThat(external.records()).extracting(VisitRef.VisitRecord::inspectResult).containsExactly((String) null);
+        // 17의 recentVisits도 같은 매핑(toRefs)을 쓴다
+        assertThat(service.findRecentVisits(shopA, vehicleA, 2).get(0).records())
+            .extracting(VisitRef.VisitRecord::inspectResult).containsExactly(null, "CAUTION");
+    }
+
+    @Test
     @DisplayName("X2: 남의 정비소 차량·없는 차량은 404 NOT_FOUND")
     void listVisits_notOwnedVehicle() {
         for (long vehicle : new long[] {vehicleB, 999_999L}) {

@@ -6,9 +6,12 @@ import java.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.OptimisticLockingFailureException;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.validation.BindException;
+import org.springframework.web.HttpMediaTypeNotAcceptableException;
 import org.springframework.web.HttpMediaTypeNotSupportedException;
 import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
@@ -16,6 +19,7 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.HandlerMethodValidationException;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
+import org.springframework.web.server.ResponseStatusException;
 import org.springframework.web.servlet.NoHandlerFoundException;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
 
@@ -24,8 +28,9 @@ import org.springframework.web.servlet.resource.NoResourceFoundException;
  *
  * <ul>
  *   <li>업무 예외 {@link BusinessException} → 그 {@link ErrorCode}</li>
- *   <li>검증 실패·잘못된 JSON·타입 불일치·필수 파라미터 누락·405·415 → 400 {@code INVALID_INPUT} (08 0.3: 표준 예외도 감싼다)</li>
+ *   <li>검증 실패·잘못된 JSON·타입 불일치·필수 파라미터 누락·405·406·415 → 400 {@code INVALID_INPUT} (08 0.3: 표준 예외도 감싼다)</li>
  *   <li>없는 경로 → 404 {@code NOT_FOUND}</li>
+ *   <li>{@code AccessDeniedException} → 403 {@code FORBIDDEN}, {@code ResponseStatusException} → 그 상태(401·403·404는 해당 코드, 그 밖 4xx는 {@code INVALID_INPUT}, 5xx는 {@code INTERNAL_ERROR})</li>
  *   <li>JPA {@code @Version} 충돌 → 409 {@code CONCURRENT_MODIFICATION} (08 0.3 M1 결정 A)</li>
  *   <li>그 밖 → 500 {@code INTERNAL_ERROR}. DB 제약 위반({@code DataIntegrityViolationException})도 여기다 —
  *       복합 FK·CHECK 위반은 서버 검증이 먼저 막아야 하는 버그이고, 사용자가 고칠 수 있는 유일 제약 위반만 업무 코드가
@@ -79,9 +84,9 @@ public class GlobalExceptionHandler {
         return respond(ErrorCode.INVALID_INPUT, List.of(new FieldErrorDetail(e.getParameterName(), "필수 입력입니다.")), null);
     }
 
-    /** 잘못된 JSON, 405, 415: 어느 필드인지 특정할 수 없으므로 fieldErrors는 비운다. */
+    /** 잘못된 JSON, 405, 406, 415: 어느 필드인지 특정할 수 없으므로 fieldErrors는 비운다. */
     @ExceptionHandler({HttpMessageNotReadableException.class, HttpRequestMethodNotSupportedException.class,
-        HttpMediaTypeNotSupportedException.class})
+        HttpMediaTypeNotSupportedException.class, HttpMediaTypeNotAcceptableException.class})
     public ResponseEntity<ApiResponse<Void>> handleBadRequest(Exception e) {
         log.debug("bad request: {}", e.getClass().getSimpleName());
         return respond(ErrorCode.INVALID_INPUT, List.of(), null);
@@ -98,6 +103,37 @@ public class GlobalExceptionHandler {
         return respond(ErrorCode.CONCURRENT_MODIFICATION, List.of(), null);
     }
 
+    /**
+     * 메서드·서비스에서 던진 {@code AccessDeniedException}은 403이다. 보안 필터 단계의 403은 {@code SecurityErrorResponder}가 만든다.
+     * 예외 메시지는 응답에 넣지 않는다.
+     *
+     * <p>주의: 메서드 보안({@code @PreAuthorize})을 도입하면 익명 사용자의 거부도 여기서 403이 된다. 08 0.2는 인증 없음을 401로 구분하므로,
+     * 그때는 익명이면 다시 던져 보안 필터의 entry point(401)가 처리하게 한다. 지금은 던지는 코드가 없다.
+     */
+    @ExceptionHandler(AccessDeniedException.class)
+    public ResponseEntity<ApiResponse<Void>> handleAccessDenied(AccessDeniedException e) {
+        log.debug("access denied: {}", e.getClass().getSimpleName());
+        return respond(ErrorCode.FORBIDDEN, List.of(), null);
+    }
+
+    /** 코드가 던진 상태를 지킨다: 401·403·404는 그 코드, 그 밖 4xx는 {@code INVALID_INPUT}, 5xx는 {@code INTERNAL_ERROR}. reason은 응답에 넣지 않는다. */
+    @ExceptionHandler(ResponseStatusException.class)
+    public ResponseEntity<ApiResponse<Void>> handleResponseStatus(ResponseStatusException e) {
+        int status = e.getStatusCode().value();
+        if (status >= 500) {
+            log.error("response status {}", status, e);
+            return respond(ErrorCode.INTERNAL_ERROR, List.of(), null);
+        }
+        log.debug("response status {}", status);
+        ErrorCode code = switch (status) {
+            case 401 -> ErrorCode.AUTH_REQUIRED;
+            case 403 -> ErrorCode.FORBIDDEN;
+            case 404 -> ErrorCode.NOT_FOUND;
+            default -> ErrorCode.INVALID_INPUT;
+        };
+        return respond(code, List.of(), null);
+    }
+
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ApiResponse<Void>> handleUnexpected(Exception e) {
         log.error("unexpected error", e);
@@ -105,6 +141,7 @@ public class GlobalExceptionHandler {
     }
 
     private static ResponseEntity<ApiResponse<Void>> respond(ErrorCode code, List<FieldErrorDetail> fields, Object details) {
-        return ResponseEntity.status(code.status()).body(ApiResponse.fail(code, fields, details));
+        // Content-Type을 JSON으로 고정한다: Accept가 JSON이 아니면(406 상황) 본문을 쓰지 못해 /error로 넘어가고, 보안 필터가 403으로 바꾼다 (#17)
+        return ResponseEntity.status(code.status()).contentType(MediaType.APPLICATION_JSON).body(ApiResponse.fail(code, fields, details));
     }
 }

@@ -21,12 +21,16 @@ public record VisitRef(
 ) {
 
     /**
-     * 08 11번 {@code records[]}: {@code { recordId, itemId, itemName, type, date, memo, version, edited, staff }}.
-     * {@code version}·{@code edited}·{@code staff}는 F-MNT-04부터 모든 기록에 붙는다.
+     * 08 11번 {@code records[]}: {@code { recordId, itemId, itemName, type, date, memo, source, inspectResult, version, edited, staff }}.
+     * {@code source}·{@code inspectResult}는 P0-나머지(F-MNT-02·03), {@code version}·{@code edited}·{@code staff}는
+     * F-MNT-04부터 모든 기록에 붙는다.
      *
-     * @param version 수정 확인용 번호 (저장 때 0, 수정마다 +1)
-     * @param edited  수정 이력(38)이 한 건이라도 있으면 true
-     * @param staff   그 기록의 담당 정비사
+     * @param source        {@code SHOP} 또는 {@code CUSTOMER_STATEMENT}(외부 기록). 07 3.7 CHECK로 구분과 짝이 맞는다
+     * @param inspectResult 점검({@code INSPECT})에서 결과를 남겼을 때만 {@code GOOD}·{@code CAUTION}, 그 밖은 null
+     * @param version       수정 확인용 번호 (저장 때 0, 수정마다 +1)
+     * @param edited        수정 이력(38)이 한 건이라도 있으면 true
+     * @param staff         그 기록의 담당 정비사
+     * @param mileage       그 기록 행의 주행거리(08 11·17 `records[].mileage`, F-MNT-04). 외부 기록은 확인되지 않았으면 null이고 null은 0이 아니다. 방문 `mileage`와 별개다
      */
     public record VisitRecord(
         long recordId,
@@ -35,9 +39,12 @@ public record VisitRef(
         String type,
         LocalDate date,
         String memo,
+        String source,
+        String inspectResult,
         int version,
         boolean edited,
-        RecordStaff staff
+        RecordStaff staff,
+        Integer mileage
     ) {
     }
 

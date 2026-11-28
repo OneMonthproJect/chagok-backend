@@ -152,7 +152,7 @@ pr-check는 여기에 더해 **비밀값**(`.github/scripts/secret-scan.sh`)과 
 3. 최초 마이그레이션(`V1__init.sql`)은 ERD(07) 확정 뒤 DB 담당자가 작성한다.
 4. **`develop`에 들어간 마이그레이션 파일은 고치지 않는다.** 바꿀 게 있으면 새 버전 파일을 더한다(pr-check가 막음). 아직 머지 안 된 내 PR의 파일은 고쳐도 된다.
 5. 파일 이름: `V{번호}__{설명}.sql` (예: `V1__init.sql`, `V2__add_inspect_result.sql`). 번호는 머지 순서대로, 겹치면 나중에 머지하는 쪽이 올린다.
-6. 실제 DB 생성·변경(DB·계정 만들기, 운영 DB 반영)은 DB 담당자가 한다.
+6. 개발·테스트·시연 DB와 계정은 각자 내 PC의 MySQL에 직접 만든다(「로컬 DB 준비」, 시연 DB는 `db/seed/README.md`). 팀이 함께 쓰는 DB는 없다. 스키마는 DB에서 직접 바꾸지 않고 마이그레이션 PR로만 바꾸며, `db/`·`src/main/resources/db/` 변경은 DB관리가 리뷰한다(CODEOWNERS). 운영 DB를 두게 되면 그 생성·반영은 DB관리가 한다.
 7. 확정되지 않은 P1·P2 기능의 테이블·컬럼은 미리 만들지 않는다(00, 07 4장).
 8. 마이그레이션을 바꾸는 PR은 `chagok-docs`의 07 문서 PR 링크가 필요하다(CONTRIBUTING 7장).
 9. 시연 데이터는 `db/seed/demo_seed.sql`에만 두고, 시연 전용 DB(`chagok_demo` 💡)에 `db/seed/run-demo-seed.sh`로만 넣는다. 서버 실행 때 자동으로 들어가지 않는다. 개발·운영 DB의 데이터를 지우지 않는다.

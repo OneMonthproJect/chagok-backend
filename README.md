@@ -17,7 +17,7 @@ P0-핵심과 P0-나머지가 들어간 상태입니다(2026-11-27, develop `753c
 |---|---|
 | 기술 | Java 21, Spring Boot 4.1.2, Spring Data JPA, Spring Security, MySQL 8, Flyway, Gradle 9.8.2 (Wrapper 포함) |
 | 패키지 | `com.wanted.chagok` — `global` / `domain` / `screen` (CONVENTIONS 2장). `global`은 공통 기반 구현(아래 「공통 기반 사용법」), `domain`은 account·shop·customer·item·maintenance·reservation·cycle, `screen`은 target·visit·booking |
-| 보안 (B-1) | JWT(HS256, Spring Security OAuth2 Resource Server + Nimbus) 검증. `GET /actuator/health` 공개, `/api/admin/**` ADMIN, `/api/**` OWNER·MECHANIC, 그 밖 모두 거부. 401·403도 공통 응답 — 아래 「공통 기반 사용법」 |
+| 인증·인가 | 로그인 01(`POST /api/auth/login`, 사장·정비사)·02(`POST /api/admin/auth/login`, 서비스 관리자) → `domain/account`의 `AuthService`가 확인하고 `global/auth/JwtIssuer`가 JWT를 발급(HS256, 12시간, 서버에 저장하지 않음). 검증은 Spring Security OAuth2 Resource Server + Nimbus. `GET /actuator/health`·로그인 POST만 공개, `/api/admin/**` ADMIN, `/api/**` OWNER·MECHANIC, 그 밖 모두 거부. 401·403도 공통 응답 — 아래 「공통 기반 사용법」 |
 | DB | MySQL 8, `ddl-auto: validate`, `open-in-view: false`, `jdbc.time_zone: Asia/Seoul`, `spring.sql.init.mode: never`(schema.sql·data.sql 자동 실행 안 함), 테이블은 Flyway만 만듦 |
 | 마이그레이션 | `src/main/resources/db/migration/V1__init.sql` — 9개 테이블, 복합 FK 8개(`shop_id` 격리)·단일 FK 9개, UNIQUE·CHECK·인덱스 (07 3장·6.1). `V2__p0_remaining.sql` — P0-나머지 칼럼·CHECK와 이력 표 2개(07 4장·6장·6.4, chagok-backend#31). 둘 다 `develop`에 머지됐으므로 고치지 않는다. 다음은 `V3`(P1, 07 6장) |
 | 시연 데이터 | `db/seed/demo_seed.sql` (07 7장, classpath 밖, 서버가 자동으로 넣지 않음) — [`db/seed/README.md`](db/seed/README.md) |
@@ -61,6 +61,7 @@ curl http://localhost:8080/actuator/health    # {"status":"UP"}
 | `./gradlew bootRun` | 서버 실행 (8080). 시작할 때 Flyway가 `db/migration`을 적용 | ○ |
 | `./gradlew build` | 컴파일 + DB 없는 테스트(ArchitectureTest·단위 테스트) | × |
 | `./gradlew dbTest` | DB 테스트(`@Tag("db")`): 앱 기동·Flyway·JPA validate, V1 제약, 시드 적용, 이후 통합·격리 테스트. **빈 테스트 전용 DB에서** (아래) | ○ |
+| `./gradlew tzTest` | `JvmTimeZoneDbTest`만 UTC로 시작한 별도 JVM에서 실행(UTC 서버에서도 앱이 Asia/Seoul로 고정돼 SQL로 넣은 시각을 같은 값으로 읽는지, backend#65). `dbTest`가 끝나면 자동으로 이어서 돈다(backend#122) | ○ |
 
 테스트 리포트: `build/reports/tests/test/index.html`, `build/reports/tests/dbTest/index.html`. SKIPPED(건너뜀)는 "검사 대상이 아직 없어 검증되지 않음"이지 통과가 아닙니다.
 
@@ -109,7 +110,7 @@ $env:DB_URL = 'jdbc:mysql://localhost:3306/chagok_test?characterEncoding=UTF-8&s
 |---|---|
 | wrapper | Wrapper 파일이 있는지(없으면 실패), 공식 jar인지(`gradle/actions/wrapper-validation`) |
 | build | `./gradlew build` — 컴파일·DB 없는 테스트. 결과 요약(통과·실패·건너뜀)과 리포트 보관 |
-| db-test | MySQL 8 서비스 + `./gradlew dbTest` — 빈 DB에 Flyway 적용·앱 기동. 결과 요약과 리포트 보관 |
+| db-test | MySQL 8 서비스 + `./gradlew dbTest`(이어서 `tzTest`) — 빈 DB에 Flyway 적용·앱 기동. 결과 요약과 리포트 보관 |
 
 pr-check는 여기에 더해 **비밀값**(`.github/scripts/secret-scan.sh`)과 **DB·Flyway 규칙**(`.github/scripts/db-rules.sh`)을 검사합니다. 실패(❌)한 PR은 머지하지 않습니다(GitHub Free 운영이라 자동으로 막히지 않음, CONTRIBUTING 5장).
 
@@ -126,7 +127,7 @@ pr-check는 여기에 더해 **비밀값**(`.github/scripts/secret-scan.sh`)과 
 
 공개 레포이므로 실제 값은 어디에도 커밋하지 않습니다. `dbTest`도 앱을 띄우므로 `JWT_SECRET`이 필요합니다.
 
-## 공통 기반 사용법 (global, B-1)
+## 공통 기반 사용법 (global)
 
 | 필요한 것 | 쓰는 법 |
 |---|---|
@@ -142,7 +143,7 @@ pr-check는 여기에 더해 **비밀값**(`.github/scripts/secret-scan.sh`)과 
 | 새 API 경로 | `SecurityConfig`에 등록하지 않은 경로는 닫혀 있다. 공개 경로는 로그인 01·02의 POST와 `GET /actuator/health`뿐이다(로그인 경로는 요청의 `Authorization`을 읽지 않음, D-72) |
 | 요청 로그 | 모든 로그 줄에 `[요청 ID]`. 요청 끝에 메서드·경로·상태·시간 한 줄(쿼리스트링·토큰은 남기지 않음) |
 
-토큰 클레임 규약(`sub`·`role`·`shopId`·`exp`)은 `global/auth/TokenClaims.java` 주석. 테스트에서 토큰이 필요하면 `src/test/…/global/auth/TestJwts`를 쓴다(운영 코드에는 토큰 발급기가 없다).
+토큰 클레임 규약(`sub`·`role`·`shopId`·`exp`)은 `global/auth/TokenClaims.java` 주석. 운영 발급은 `global/auth/JwtIssuer`(로그인 01·02에서만 호출, 토큰 문자열은 로그·예외 메시지에 남기지 않음)다. 테스트에서 로그인 없이 토큰이 필요하면 테스트 전용 `src/test/…/global/auth/TestJwts`를 쓴다.
 
 ## DB·Flyway 규칙
 

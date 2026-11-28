@@ -14,6 +14,7 @@ import com.wanted.chagok.domain.item.api.ItemRef;
 import com.wanted.chagok.domain.maintenance.api.MaintenanceReader;
 import com.wanted.chagok.domain.maintenance.api.MaintenanceRecordRef;
 import com.wanted.chagok.global.error.BusinessException;
+import com.wanted.chagok.global.web.MileageRange;
 import com.wanted.chagok.screen.visit.dto.ItemStatusResponse;
 import java.time.Clock;
 import java.time.LocalDate;
@@ -33,8 +34,6 @@ import org.springframework.transaction.annotation.Transactional;
 @Transactional(readOnly = true)
 public class ItemStatusService {
 
-    private static final int MAX_MILEAGE = 2_000_000;
-
     private final CustomerReader customerReader;
     private final ItemReader itemReader;
     private final MaintenanceReader maintenanceReader;
@@ -51,7 +50,7 @@ public class ItemStatusService {
 
     /** @param mileage 방문 중 입력한 주행거리. null이면 날짜 기준만 판정한다 (T11) */
     public ItemStatusResponse getItemStatus(long shopId, long vehicleId, Integer mileage) {
-        if (mileage != null && (mileage < 0 || mileage > MAX_MILEAGE)) {
+        if (MileageRange.isOutOfRange(mileage)) {
             throw BusinessException.invalidField("mileage", "0 이상 2,000,000 이하의 정수여야 합니다.");
         }
         // 없거나 다른 정비소 차량이면 여기서 404 (X6)

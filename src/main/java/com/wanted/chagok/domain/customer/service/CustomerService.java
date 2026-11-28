@@ -20,6 +20,7 @@ import com.wanted.chagok.domain.customer.repository.CustomerRepository;
 import com.wanted.chagok.domain.customer.repository.VehicleRepository;
 import com.wanted.chagok.global.error.BusinessException;
 import com.wanted.chagok.global.error.ErrorCode;
+import com.wanted.chagok.global.web.MileageRange;
 import com.wanted.chagok.global.web.PageLimit;
 import java.time.Clock;
 import java.time.LocalDate;
@@ -45,7 +46,6 @@ import org.springframework.transaction.annotation.Transactional;
 public class CustomerService implements CustomerReader, CustomerWriter {
 
     private static final int MIN_MODEL_YEAR = 1980;
-    private static final int MAX_MILEAGE = 2_000_000;
 
     private final CustomerRepository customers;
     private final VehicleRepository vehicles;
@@ -234,7 +234,7 @@ public class CustomerService implements CustomerReader, CustomerWriter {
                 MIN_MODEL_YEAR + "년부터 " + (LocalDate.now(clock).getYear() + 1) + "년까지 입력할 수 있습니다.");
         }
         checkModelYearUpperBound(modelYear, modelYearField);
-        if (mileage != null && (mileage < 0 || mileage > MAX_MILEAGE)) {
+        if (MileageRange.isOutOfRange(mileage)) {
             throw BusinessException.invalidField("mileage", "0 이상 2,000,000 이하로 입력해 주세요.");
         }
         vehicle.applyVisit(modelYear, mileage);

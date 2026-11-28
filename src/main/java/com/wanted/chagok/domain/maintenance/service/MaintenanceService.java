@@ -24,6 +24,7 @@ import com.wanted.chagok.global.auth.LoginStaff;
 import com.wanted.chagok.global.error.BusinessException;
 import com.wanted.chagok.global.error.ErrorCode;
 import com.wanted.chagok.global.response.ApiResponse.FieldErrorDetail;
+import com.wanted.chagok.global.web.MileageRange;
 import com.wanted.chagok.global.web.PageLimit;
 import java.time.Clock;
 import java.time.LocalDate;
@@ -54,7 +55,6 @@ public class MaintenanceService implements MaintenanceReader {
 
     private static final String REQUIRED = "필수 입력입니다.";
     private static final String EXTERNAL_ONLY = "외부 기록일 때만 입력할 수 있습니다.";
-    private static final int MAX_MILEAGE = 2_000_000;
     private static final Set<String> INSPECT_RESULTS = Set.of("GOOD", "CAUTION");
 
     private final MaintenanceRecordRepository records;
@@ -132,7 +132,7 @@ public class MaintenanceService implements MaintenanceReader {
                 } else if (r.externalDate().isAfter(today)) {
                     errors.add(new FieldErrorDetail(at + "externalDate", "오늘 이전 날짜만 입력할 수 있습니다."));
                 }
-                if (r.externalMileage() != null && (r.externalMileage() < 0 || r.externalMileage() > MAX_MILEAGE)) {
+                if (MileageRange.isOutOfRange(r.externalMileage())) {
                     errors.add(new FieldErrorDetail(at + "externalMileage", "0 ~ 2,000,000 사이로 입력해 주세요."));
                 }
             } else {
@@ -267,7 +267,7 @@ public class MaintenanceService implements MaintenanceReader {
         if (request.recordDate() != null && request.recordDate().isAfter(today)) {
             errors.add(new FieldErrorDetail("recordDate", "오늘 이전 날짜만 입력할 수 있습니다."));
         }
-        if (request.mileage() != null && (request.mileage() < 0 || request.mileage() > MAX_MILEAGE)) {
+        if (MileageRange.isOutOfRange(request.mileage())) {
             errors.add(new FieldErrorDetail("mileage", "0 ~ 2,000,000 사이로 입력해 주세요."));
         }
         if (request.inspectResult() != null && !INSPECT_RESULTS.contains(request.inspectResult())) {

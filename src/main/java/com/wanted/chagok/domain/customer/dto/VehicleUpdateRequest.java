@@ -1,5 +1,6 @@
 package com.wanted.chagok.domain.customer.dto;
 
+import com.wanted.chagok.global.web.MileageRange;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotNull;
@@ -27,8 +28,8 @@ public record VehicleUpdateRequest(
     @Min(value = 1980, message = "1980년 이후여야 합니다.")
     Integer modelYear,
 
-    @Min(value = 0, message = "0 이상이어야 합니다.")
-    @Max(value = 2_000_000, message = "2,000,000 이하여야 합니다.")
+    @Min(value = MileageRange.MIN, message = "0 이상이어야 합니다.")
+    @Max(value = MileageRange.MAX, message = "2,000,000 이하여야 합니다.")
     Integer latestMileage
 ) {
 

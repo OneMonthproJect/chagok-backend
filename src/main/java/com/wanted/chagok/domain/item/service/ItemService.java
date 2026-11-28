@@ -59,14 +59,20 @@ public class ItemService implements ItemReader {
             .collect(Collectors.toMap(ServiceItem::getId, ItemService::toRef, (a, b) -> a));
     }
 
+    /**
+     * 받은 id로 조회하지 않고 그 정비소의 쓰는 항목을 읽어 메모리에서 비교한다. 그래서 요청 배열({@code records[]}·
+     * {@code purpose.itemIds})이 길어도 DB 조회는 한 번이고 그 크기가 입력과 무관하다. 판정은 id로 조회할 때와 같다 —
+     * 없음·남의 정비소·쓰지 않는 항목은 모두 쓰는 항목 목록에 없으므로 같은 400이다(X11).
+     */
+    // LIMIT: 정비소의 항목은 6개 고정이다(04 F-ITEM-01: 켜기·끄기·주기 수정만, 새 항목 추가는 P2). 항목 추가가 생겨
+    // 정비소당 항목이 수백 개를 넘으면 이 전체 읽기를 다시 본다.
     @Override
     public void requireActiveItems(long shopId, Collection<Long> itemIds, String field) {
         Set<Long> ids = distinctIds(itemIds);
         if (ids.isEmpty()) {
             return;
         }
-        Set<Long> usable = items.findByShopIdAndIdIn(shopId, ids).stream()
-            .filter(ServiceItem::isActive)
+        Set<Long> usable = items.findByShopIdAndActiveTrueOrderBySortOrderAscIdAsc(shopId).stream()
             .map(ServiceItem::getId)
             .collect(Collectors.toSet());
         if (!usable.containsAll(ids)) {
